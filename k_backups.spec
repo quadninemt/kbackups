@@ -1,14 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
+from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
 
+project_root = os.path.abspath(os.getcwd())
+src_hiddenimports = collect_submodules('src')
+
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=[project_root],
     binaries=[],
     datas=[('assets', 'assets')],
-    hiddenimports=['smbclient', 'tkinter', 'sqlite3', 'configparser'],
+    hiddenimports=['smbclient', 'tkinter', 'sqlite3', 'configparser'] + src_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

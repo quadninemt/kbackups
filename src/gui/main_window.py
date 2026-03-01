@@ -161,6 +161,15 @@ class MainWindow(tk.Tk):
         self.log_area.see(tk.END)
         self.log_area.config(state='disabled')
 
+    def _normalize_destination_path(self, path):
+        normalized = path.strip().replace("/", "\\")
+
+        # If user started with one or more slashes, normalize to UNC double backslash.
+        if normalized.startswith("\\"):
+            normalized = "\\\\" + normalized.lstrip("\\")
+
+        return normalized
+
     def _refresh_settings_file_status(self):
         config_path = os.path.abspath(self.config_manager.config_path)
         self.lbl_settings_path.config(text=f"Path: {config_path}")
@@ -220,6 +229,7 @@ class MainWindow(tk.Tk):
         frame_btns.pack(fill=tk.X, padx=10, pady=10)
         
         ttk.Button(frame_btns, text="Add Job", command=self._add_job).pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame_btns, text="Edit Job", command=self._edit_job).pack(side=tk.LEFT, padx=5)
         ttk.Button(frame_btns, text="Delete Job", command=self._delete_job).pack(side=tk.LEFT, padx=5)
         
         self._refresh_jobs_tree()
@@ -242,6 +252,10 @@ class MainWindow(tk.Tk):
         top = tk.Toplevel(self)
         top.title("Add New Job")
         top.geometry("600x600")
+        top.transient(self)
+        top.grab_set()
+        top.lift()
+        top.focus_force()
         
         # Apply dark background
         bg_color = "#2b2b2b"
@@ -274,11 +288,13 @@ class MainWindow(tk.Tk):
         frame_source_btns.pack(fill=tk.X, pady=(0, 15))
         
         def add_source():
-            d = filedialog.askdirectory(title="Select Source Folder")
+            d = filedialog.askdirectory(title="Select Source Folder", parent=top)
             if d:
                 # Avoid duplicates
                 if d not in list_sources.get(0, tk.END):
                     list_sources.insert(tk.END, d)
+            top.lift()
+            top.focus_force()
         
         def remove_source():
             selection = list_sources.curselection()
@@ -299,11 +315,13 @@ class MainWindow(tk.Tk):
         
         def browse_dest():
             # Note: Browsing network locations might require user to select mapped drive or Network in dialog
-            d = filedialog.askdirectory(title="Select Destination Folder")
+            d = filedialog.askdirectory(title="Select Destination Folder", parent=top)
             if d:
                 # If path is irrelevant (e.g. user wants to type UNC), they can still type.
                 ent_dest.delete(0, tk.END)
                 ent_dest.insert(0, d)
+            top.lift()
+            top.focus_force()
                 
         ttk.Button(frame_dest, text="Browse...", command=browse_dest).pack(side=tk.LEFT)
         
@@ -316,7 +334,9 @@ class MainWindow(tk.Tk):
         def save():
             name = ent_name.get().strip()
             sources = list(list_sources.get(0, tk.END))
-            dest = ent_dest.get().strip()
+            dest = self._normalize_destination_path(ent_dest.get())
+            ent_dest.delete(0, tk.END)
+            ent_dest.insert(0, dest)
             
             if not name:
                 messagebox.showwarning("Error", "Job Name is required.", parent=top)
@@ -353,6 +373,136 @@ class MainWindow(tk.Tk):
         if messagebox.askyesno("Confirm", "Delete selected job?"):
             self.config_manager.delete_job(idx)
             self._refresh_all_job_lists()
+
+    def _edit_job(self):
+        selected = self.tree_jobs.selection()
+        if not selected:
+            messagebox.showwarning("Warning", "Please select a job to edit.")
+            return
+
+        job_index = int(selected[0])
+        jobs = self.config_manager.get_jobs()
+        if job_index < 0 or job_index >= len(jobs):
+            messagebox.showerror("Error", "Selected job no longer exists.")
+            self._refresh_all_job_lists()
+            return
+
+        existing_job = jobs[job_index]
+
+        top = tk.Toplevel(self)
+        top.title("Edit Job")
+        top.geometry("600x600")
+        top.transient(self)
+        top.grab_set()
+        top.lift()
+        top.focus_force()
+
+        bg_color = "#2b2b2b"
+        top.configure(bg=bg_color)
+
+        main_frame = ttk.Frame(top, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main_frame, text="Job Name:").pack(anchor=tk.W, pady=(0, 5))
+        ent_name = ttk.Entry(main_frame)
+        ent_name.pack(fill=tk.X, pady=(0, 15))
+        ent_name.insert(0, existing_job.get("name", ""))
+
+        ttk.Label(main_frame, text="Source Folders:").pack(anchor=tk.W, pady=(0, 5))
+
+        frame_sources = ttk.Frame(main_frame)
+        frame_sources.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
+
+        list_sources = tk.Listbox(frame_sources, height=6, bg="#3c3c3c", fg="#ffffff", selectbackground="#007acc", borderwidth=0)
+        list_sources.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        scrollbar_sources = ttk.Scrollbar(frame_sources, orient="vertical", command=list_sources.yview)
+        scrollbar_sources.pack(side=tk.RIGHT, fill=tk.Y)
+        list_sources.config(yscrollcommand=scrollbar_sources.set)
+
+        for source_path in existing_job.get("source_paths", []):
+            list_sources.insert(tk.END, source_path)
+
+        frame_source_btns = ttk.Frame(main_frame)
+        frame_source_btns.pack(fill=tk.X, pady=(0, 15))
+
+        def add_source():
+            d = filedialog.askdirectory(title="Select Source Folder", parent=top)
+            if d and d not in list_sources.get(0, tk.END):
+                list_sources.insert(tk.END, d)
+            top.lift()
+            top.focus_force()
+
+        def remove_source():
+            selection = list_sources.curselection()
+            if selection:
+                list_sources.delete(selection[0])
+
+        ttk.Button(frame_source_btns, text="Add Folder", command=add_source).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(frame_source_btns, text="Remove Selected", command=remove_source).pack(side=tk.LEFT)
+
+        ttk.Label(main_frame, text="Destination Folder (on NAS):").pack(anchor=tk.W, pady=(0, 5))
+
+        frame_dest = ttk.Frame(main_frame)
+        frame_dest.pack(fill=tk.X, pady=(0, 5))
+
+        ent_dest = ttk.Entry(frame_dest)
+        ent_dest.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        ent_dest.insert(0, existing_job.get("destination_path", ""))
+
+        def browse_dest():
+            d = filedialog.askdirectory(title="Select Destination Folder", parent=top)
+            if d:
+                ent_dest.delete(0, tk.END)
+                ent_dest.insert(0, d)
+            top.lift()
+            top.focus_force()
+
+        ttk.Button(frame_dest, text="Browse...", command=browse_dest).pack(side=tk.LEFT)
+
+        ttk.Label(main_frame, text="Note: For NAS, use UNC path if not mapped (e.g. \\\\Server\\Share\\Folder)", font=("Segoe UI", 8)).pack(anchor=tk.W, pady=(0, 20))
+
+        frame_actions = ttk.Frame(main_frame)
+        frame_actions.pack(fill=tk.X, side=tk.BOTTOM)
+
+        def save_changes():
+            name = ent_name.get().strip()
+            sources = list(list_sources.get(0, tk.END))
+            dest = self._normalize_destination_path(ent_dest.get())
+            ent_dest.delete(0, tk.END)
+            ent_dest.insert(0, dest)
+
+            if not name:
+                messagebox.showwarning("Error", "Job Name is required.", parent=top)
+                return
+            if not sources:
+                messagebox.showwarning("Error", "At least one Source Folder is required.", parent=top)
+                return
+            if not dest:
+                messagebox.showwarning("Error", "Destination Folder is required.", parent=top)
+                return
+
+            job_data = {
+                "name": name,
+                "source_paths": sources,
+                "destination_path": dest,
+                "exclude_patterns": existing_job.get("exclude_patterns", [])
+            }
+
+            try:
+                updated = self.config_manager.update_job(job_index, job_data)
+                if not updated:
+                    messagebox.showerror("Error", "Failed to update job.", parent=top)
+                    return
+
+                self._refresh_all_job_lists()
+                top.destroy()
+                messagebox.showinfo("Success", f"Job '{name}' updated successfully.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to update job: {e}", parent=top)
+
+        ttk.Button(frame_actions, text="Save Changes", command=save_changes).pack(side=tk.RIGHT)
+        ttk.Button(frame_actions, text="Cancel", command=top.destroy).pack(side=tk.RIGHT, padx=(0, 10))
 
     def _init_settings_tab(self):
         # NAS Settings

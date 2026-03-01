@@ -5,6 +5,7 @@ from src.file_scanner import FileScanner
 from src.manifest_manager import ManifestManager
 from src.share_connector import ShareConnector
 
+
 class BackupEngine:
     def __init__(self, config_manager):
         self.config_manager = config_manager
@@ -36,6 +37,29 @@ class BackupEngine:
             time.sleep(0.5)
         return False
 
+    def _get_source_folder_map(self, source_paths):
+        """Builds stable top-level destination folder names per source path."""
+        source_folder_map = {}
+        used_names = {}
+
+        for source_path in source_paths:
+            normalized = os.path.normpath(source_path)
+            folder_name = os.path.basename(normalized)
+
+            if not folder_name:
+                drive, _ = os.path.splitdrive(normalized)
+                folder_name = drive.replace(":", "") if drive else "source"
+
+            count = used_names.get(folder_name, 0) + 1
+            used_names[folder_name] = count
+
+            if count > 1:
+                folder_name = f"{folder_name}_{count}"
+
+            source_folder_map[source_path] = folder_name
+
+        return source_folder_map
+
     def run_job(self, job_name, progress_callback=None):
         """
         Run a backup job by name.
@@ -43,7 +67,7 @@ class BackupEngine:
         """
         self._stop_requested = False
         self._pause_requested = False
-            self.logger.info("Starting backup job '%s'.", job_name)
+        self.logger.info("Starting backup job '%s'.", job_name)
 
         # 1. Get job configuration
         jobs = self.config_manager.get_jobs()
@@ -55,14 +79,14 @@ class BackupEngine:
 
         source_paths = job_config.get("source_paths", [])
         excludes = job_config.get("exclude_patterns", [])
-        destination_folder = job_config.get("destination_path", "") # e.g., "MyBackup"
-            self.logger.info(
-                "Job '%s' config: %d source path(s), destination='%s', %d exclude pattern(s).",
-                job_name,
-                len(source_paths),
-                destination_folder,
-                len(excludes),
-            )
+        destination_folder = job_config.get("destination_path", "")  # e.g., "MyBackup"
+        self.logger.info(
+            "Job '%s' config: %d source path(s), destination='%s', %d exclude pattern(s).",
+            job_name,
+            len(source_paths),
+            destination_folder,
+            len(excludes),
+        )
         
         nas_config = self.config_manager.get_nas_settings()
         nas_address = nas_config.get("address")
@@ -107,7 +131,17 @@ class BackupEngine:
                 if progress_callback: progress_callback(0, 0, msg)
                 return False
 
-            local_files = self.file_scanner.scan(valid_sources, excludes)
+            source_folder_map = self._get_source_folder_map(valid_sources)
+            local_files = []
+            for src in valid_sources:
+                source_files = self.file_scanner.scan([src], excludes)
+                source_folder = source_folder_map[src]
+
+                for file_meta in source_files:
+                    normalized_meta = file_meta.copy()
+                    normalized_meta['rel_path'] = os.path.join(source_folder, file_meta['rel_path'])
+                    local_files.append(normalized_meta)
+
             # Map path -> metadata for O(1) lookup
             local_files_map = {f['path']: f for f in local_files}
             
@@ -132,7 +166,11 @@ class BackupEngine:
                     # Compare size and mtime
                     # Use a small tolerance for mtime (e.g. 2 seconds for FAT/SMB differences)
                     time_diff = abs(meta['mtime'] - manifest_meta['mtime'])
-                    if meta['size'] != manifest_meta['size'] or time_diff > 2.0:
+                    if (
+                        meta['size'] != manifest_meta['size']
+                        or time_diff > 2.0
+                        or meta['rel_path'] != manifest_meta.get('rel_path')
+                    ):
                         is_changed = True
                 
                 if is_changed:
@@ -145,12 +183,12 @@ class BackupEngine:
                     to_delete.append((path, meta))
 
             total_ops = len(to_upload) + len(to_delete)
-                self.logger.info(
-                    "Job '%s' operations prepared: %d upload(s), %d delete(s).",
-                    job_name,
-                    len(to_upload),
-                    len(to_delete),
-                )
+            self.logger.info(
+                "Job '%s' operations prepared: %d upload(s), %d delete(s).",
+                job_name,
+                len(to_upload),
+                len(to_delete),
+            )
             if progress_callback:
                 progress_callback(0, total_ops, f"Found {len(to_upload)} files to upload, {len(to_delete)} to delete.")
             
@@ -195,19 +233,19 @@ class BackupEngine:
                     try:
                         uploaded_stat = os.stat(full_path)
                         self.manifest_manager.update_file_state(
-                            job_name, 
-                            full_path, 
-                            rel_path, 
-                            uploaded_stat.st_size, 
+                            job_name,
+                            full_path,
+                            rel_path,
+                            uploaded_stat.st_size,
                             uploaded_stat.st_mtime
                         )
                     except OSError:
-                         self.logger.warning(
-                             "Uploaded file stat refresh failed for %s (job '%s').",
-                             full_path,
-                             job_name,
-                             exc_info=True,
-                         )
+                        self.logger.warning(
+                            "Uploaded file stat refresh failed for %s (job '%s').",
+                            full_path,
+                            job_name,
+                            exc_info=True,
+                        )
                 else:
                     if progress_callback: progress_callback(processed, total_ops, f"Failed to upload {rel_path}")
                 
@@ -215,12 +253,13 @@ class BackupEngine:
             
             if progress_callback:
                 progress_callback(total_ops, total_ops, "Backup completed successfully.")
-                self.logger.info("Backup job '%s' completed successfully.", job_name)
+
+            self.logger.info("Backup job '%s' completed successfully.", job_name)
             
             return True
 
         except Exception as e:
-                self.logger.error(f"Backup failed: {e}", exc_info=True)
+            self.logger.error(f"Backup failed: {e}", exc_info=True)
             if progress_callback:
                 progress_callback(0, 0, f"Error: {str(e)}")
             return False
@@ -237,7 +276,7 @@ class BackupEngine:
             return True
         except Exception as e:
             msg = f"Failed to access/create destination '{destination_folder}': {e}"
-                self.logger.error(msg, exc_info=True)
+            self.logger.error(msg, exc_info=True)
             if progress_callback: progress_callback(0, 0, msg)
             return False
 
@@ -289,11 +328,12 @@ class BackupEngine:
                 
             if progress_callback:
                 progress_callback(total_files, total_files, "Restore completed.")
-                self.logger.info("Restore job '%s' completed successfully.", job_name)
+
+            self.logger.info("Restore job '%s' completed successfully.", job_name)
             return True
             
         except Exception as e:
-                self.logger.error(f"Restore failed: {e}", exc_info=True)
+            self.logger.error(f"Restore failed: {e}", exc_info=True)
             if progress_callback: progress_callback(0, 0, f"Error: {e}")
             return False
         finally:
