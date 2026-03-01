@@ -4,6 +4,10 @@ import os
 import sys
 import threading
 from datetime import datetime
+try:
+    from tkfilebrowser import askopendirnames
+except Exception:
+    askopendirnames = None
 from src.config_manager import ConfigManager
 from src.scheduler_manager import SchedulerManager
 from src.backup_engine import BackupEngine
@@ -170,6 +174,17 @@ class MainWindow(tk.Tk):
 
         return normalized
 
+    def _select_source_folders(self, parent):
+        if askopendirnames is not None:
+            try:
+                selected_paths = askopendirnames(parent=parent, title="Select Source Folder(s)")
+                return [path for path in selected_paths if path]
+            except Exception:
+                pass
+
+        selected_path = filedialog.askdirectory(title="Select Source Folder", parent=parent)
+        return [selected_path] if selected_path else []
+
     def _refresh_settings_file_status(self):
         config_path = os.path.abspath(self.config_manager.config_path)
         self.lbl_settings_path.config(text=f"Path: {config_path}")
@@ -288,11 +303,12 @@ class MainWindow(tk.Tk):
         frame_source_btns.pack(fill=tk.X, pady=(0, 15))
         
         def add_source():
-            d = filedialog.askdirectory(title="Select Source Folder", parent=top)
-            if d:
-                # Avoid duplicates
-                if d not in list_sources.get(0, tk.END):
-                    list_sources.insert(tk.END, d)
+            selected_paths = self._select_source_folders(top)
+            existing_paths = set(list_sources.get(0, tk.END))
+            for selected_path in selected_paths:
+                if selected_path not in existing_paths:
+                    list_sources.insert(tk.END, selected_path)
+                    existing_paths.add(selected_path)
             top.lift()
             top.focus_force()
         
@@ -356,7 +372,7 @@ class MainWindow(tk.Tk):
             }
             try:
                 self.config_manager.add_job(job_data)
-                self._refresh_all_job_lists()
+                self._refresh_all_job_lists(preferred_job_name=name)
                 top.destroy()
                 messagebox.showinfo("Success", f"Job '{name}' created successfully.")
             except Exception as e:
@@ -427,9 +443,12 @@ class MainWindow(tk.Tk):
         frame_source_btns.pack(fill=tk.X, pady=(0, 15))
 
         def add_source():
-            d = filedialog.askdirectory(title="Select Source Folder", parent=top)
-            if d and d not in list_sources.get(0, tk.END):
-                list_sources.insert(tk.END, d)
+            selected_paths = self._select_source_folders(top)
+            existing_paths = set(list_sources.get(0, tk.END))
+            for selected_path in selected_paths:
+                if selected_path not in existing_paths:
+                    list_sources.insert(tk.END, selected_path)
+                    existing_paths.add(selected_path)
             top.lift()
             top.focus_force()
 
@@ -495,7 +514,7 @@ class MainWindow(tk.Tk):
                     messagebox.showerror("Error", "Failed to update job.", parent=top)
                     return
 
-                self._refresh_all_job_lists()
+                self._refresh_all_job_lists(preferred_job_name=name)
                 top.destroy()
                 messagebox.showinfo("Success", f"Job '{name}' updated successfully.")
             except Exception as e:
@@ -619,25 +638,44 @@ class MainWindow(tk.Tk):
         self._refresh_settings_file_status()
         messagebox.showinfo("Saved", "NAS settings saved successfully.")
 
-    def _refresh_all_job_lists(self):
-        self._refresh_jobs_list()
+    def _refresh_all_job_lists(self, preferred_job_name=None):
+        self._refresh_jobs_list(preferred_job_name=preferred_job_name)
         self._refresh_jobs_tree()
-        self._refresh_restore_jobs()
+        self._refresh_restore_jobs(preferred_job_name=preferred_job_name)
 
-    def _refresh_jobs_list(self):
+    def _refresh_jobs_list(self, preferred_job_name=None):
         jobs = self.config_manager.get_jobs()
         job_names = [j['name'] for j in jobs]
         self.combo_jobs['values'] = job_names
-        if job_names and not self.combo_jobs.get():
+        if not job_names:
+            self.combo_jobs.set("")
+            return
+
+        if preferred_job_name and preferred_job_name in job_names:
+            self.combo_jobs.set(preferred_job_name)
+            return
+
+        current_value = self.combo_jobs.get()
+        if current_value not in job_names:
             self.combo_jobs.current(0)
 
-    def _refresh_restore_jobs(self):
+    def _refresh_restore_jobs(self, preferred_job_name=None):
         jobs = self.config_manager.get_jobs()
         names = [j['name'] for j in jobs]
         if hasattr(self, 'combo_restore_jobs'):
-             self.combo_restore_jobs['values'] = names
-             if names and not self.combo_restore_jobs.get():
-                 self.combo_restore_jobs.current(0)
+            self.combo_restore_jobs['values'] = names
+
+            if not names:
+                self.combo_restore_jobs.set("")
+                return
+
+            if preferred_job_name and preferred_job_name in names:
+                self.combo_restore_jobs.set(preferred_job_name)
+                return
+
+            current_value = self.combo_restore_jobs.get()
+            if current_value not in names:
+                self.combo_restore_jobs.current(0)
 
     def _start_backup(self):
         job_name = self.combo_jobs.get()

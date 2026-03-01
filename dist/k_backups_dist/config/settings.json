@@ -1,8 +1,22 @@
 {
     "nas": {
-        "address": "",
-        "username": "",
-        "password": ""
+        "address": "\\\\192.168.1.100",
+        "username": "kc",
+        "password": "b0xm4n"
     },
-    "jobs": []
+    "jobs": [
+        {
+            "name": "QuadNine Backup",
+            "source_paths": [
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/Documents",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/Data",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/Desktop",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/Holidays",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/Interests",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/QuadNine Ltd"
+            ],
+            "destination_path": "\\\\kcbackups\\testing",
+            "exclude_patterns": []
+        }
+    ]
 }

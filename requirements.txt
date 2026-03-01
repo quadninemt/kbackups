@@ -1,3 +1,4 @@
 smbprotocol
 pyinstaller
 pytest
+tkfilebrowser
