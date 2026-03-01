@@ -1,0 +1,4 @@
+smbprotocol
+smbclient
+pyinstaller
+pytest
