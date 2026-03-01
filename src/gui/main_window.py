@@ -1,9 +1,11 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, scrolledtext
 import os
+import sys
 import threading
 from src.config_manager import ConfigManager
 from src.scheduler_manager import SchedulerManager
+from src.backup_engine import BackupEngine
 
 class MainWindow(tk.Tk):
     def __init__(self, config_manager):
@@ -13,6 +15,18 @@ class MainWindow(tk.Tk):
         
         self.title("k_backups - Backup Utility")
         self.geometry("800x600")
+        
+        # Set window icon if available
+        # Check both relative path (for dev) and sys._MEIPASS (for PyInstaller)
+        icon_path = os.path.join("assets", "app_icon.ico")
+        if not os.path.exists(icon_path) and hasattr(sys, '_MEIPASS'):
+             icon_path = os.path.join(sys._MEIPASS, "assets", "app_icon.ico")
+             
+        if os.path.exists(icon_path):
+            try:
+                self.iconbitmap(icon_path)
+            except Exception as e:
+                print(f"Icon loading failed: {e}")
         
         # Apply theme
         self._apply_theme()
@@ -52,11 +66,43 @@ class MainWindow(tk.Tk):
             # Fallback style
             style = ttk.Style()
             style.theme_use('clam')
-            # Customize colors for dark mode manually if theme missing
-            style.configure(".", background="#333", foreground="#EEE")
-            style.configure("TLabel", background="#333", foreground="#EEE")
-            style.configure("TButton", background="#555", foreground="#EEE")
-            self.configure(bg="#333")
+            
+            # Colors
+            bg_color = "#2b2b2b"
+            fg_color = "#ffffff"
+            accent_color = "#007acc"
+            active_bg = "#3c3c3c"
+            
+            style.configure(".", background=bg_color, foreground=fg_color, fieldbackground=active_bg, darkcolor=bg_color, lightcolor=bg_color, bordercolor=bg_color)
+            style.configure("TLabel", background=bg_color, foreground=fg_color)
+            style.configure("TButton", background=active_bg, foreground=fg_color, borderwidth=1, focusthickness=3, focuscolor=accent_color)
+            style.map("TButton", background=[("active", accent_color), ("pressed", accent_color)], foreground=[("active", "white")])
+            
+            style.configure("TEntry", fieldbackground=active_bg, foreground=fg_color, insertcolor=fg_color)
+            
+            # Notebook (Tabs)
+            style.configure("TNotebook", background=bg_color, borderwidth=0)
+            style.configure("TNotebook.Tab", background=active_bg, foreground=fg_color, padding=[10, 5], borderwidth=0)
+            style.map("TNotebook.Tab", background=[("selected", accent_color)], foreground=[("selected", "white")])
+            
+            # Treeview
+            style.configure("Treeview", background=active_bg, foreground=fg_color, fieldbackground=active_bg, borderwidth=0)
+            style.configure("Treeview.Heading", background=bg_color, foreground=fg_color, relief="flat")
+            style.map("Treeview.Heading", background=[("active", active_bg)])
+            
+            # Labelframes
+            style.configure("TLabelframe", background=bg_color, bordercolor=active_bg)
+            style.configure("TLabelframe.Label", background=bg_color, foreground=accent_color)
+            
+            # Combobox
+            style.map("TCombobox", fieldbackground=[("readonly", active_bg)], selectbackground=[("readonly", active_bg)], selectforeground=[("readonly", fg_color)], background=[("readonly", active_bg)], foreground=[("readonly", fg_color)])
+            # This handles the dropdown listbox
+            self.option_add("*TCombobox*Listbox.background", active_bg)
+            self.option_add("*TCombobox*Listbox.foreground", fg_color)
+            self.option_add("*TCombobox*Listbox.selectBackground", accent_color)
+            self.option_add("*TCombobox*Listbox.selectForeground", "white")
+            
+            self.configure(bg=bg_color)
 
     def _init_dashboard_tab(self):
         # Job Selection
@@ -70,18 +116,56 @@ class MainWindow(tk.Tk):
         
         # Actions
         frame_actions = ttk.Frame(self.tab_dashboard)
-        frame_actions.pack(pady=20)
+        frame_actions.pack(pady=10)
         
         self.btn_backup = ttk.Button(frame_actions, text="Backup Now", command=self._start_backup)
-        self.btn_backup.pack(side=tk.LEFT, padx=10)
+        self.btn_backup.pack(side=tk.LEFT, padx=5)
+
+        self.btn_pause = ttk.Button(frame_actions, text="Pause", command=self._pause_backup, state="disabled")
+        self.btn_pause.pack(side=tk.LEFT, padx=5)
+
+        self.btn_stop = ttk.Button(frame_actions, text="Stop", command=self._stop_backup, state="disabled")
+        self.btn_stop.pack(side=tk.LEFT, padx=5)
         
         # Progress
         self.progress_var = tk.DoubleVar()
         self.progress_bar = ttk.Progressbar(self.tab_dashboard, variable=self.progress_var, maximum=100)
-        self.progress_bar.pack(fill=tk.X, padx=20, pady=10)
+        self.progress_bar.pack(fill=tk.X, padx=20, pady=5)
         
         self.lbl_status = ttk.Label(self.tab_dashboard, text="Ready")
         self.lbl_status.pack(pady=5)
+
+        # Log Area
+        frame_logs = ttk.LabelFrame(self.tab_dashboard, text="Activity Log")
+        frame_logs.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self.log_area = scrolledtext.ScrolledText(frame_logs, height=10, state='disabled', bg="#1e1e1e", fg="#d4d4d4", font=("Consolas", 9))
+        self.log_area.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+    def _log(self, message):
+        self.log_area.config(state='normal')
+        self.log_area.insert(tk.END, message + "\n")
+        self.log_area.see(tk.END)
+        self.log_area.config(state='disabled')
+
+    def _pause_backup(self):
+        if hasattr(self, 'current_engine') and self.current_engine:
+            if self.btn_pause['text'] == "Pause":
+                self.current_engine.request_pause()
+                self.btn_pause.config(text="Resume")
+                self._log("Backup paused...")
+            else:
+                self.current_engine.resume()
+                self.btn_pause.config(text="Pause")
+                self._log("Backup resumed...")
+
+    def _stop_backup(self):
+        if hasattr(self, 'current_engine') and self.current_engine:
+            self.current_engine.request_stop()
+            self._log("Stop requested... waiting for current operation to finish.")
+            self.btn_stop.state(['disabled'])
+            self.btn_pause.state(['disabled'])
+
 
     def _init_jobs_tab(self):
         # Frame for list + buttons
@@ -129,53 +213,111 @@ class MainWindow(tk.Tk):
             ))
 
     def _add_job(self):
-        # Simple prompt for new job name
-        # Ideally a full dialog, but for now simple steps
-        # Use simpledialog logic or custom implementation
         top = tk.Toplevel(self)
         top.title("Add New Job")
-        top.geometry("400x300")
+        top.geometry("600x600")
         
-        ttk.Label(top, text="Job Name:").pack(pady=5)
-        ent_name = ttk.Entry(top)
-        ent_name.pack(pady=5)
+        # Apply dark background
+        bg_color = "#2b2b2b"
+        top.configure(bg=bg_color)
         
-        ttk.Label(top, text="Source Folder:").pack(pady=5)
-        ent_source = ttk.Entry(top)
-        ent_source.pack(pady=5)
-        def browse_source():
-            d = filedialog.askdirectory()
-            if d:
-                ent_name.delete(0, tk.END)
-                ent_name.insert(0, d) # Wait, did I map source to name? No.
-                ent_source.delete(0, tk.END)
-                ent_source.insert(0, d)
-        ttk.Button(top, text="Browse...", command=browse_source).pack(pady=2)
+        # Main container with padding
+        main_frame = ttk.Frame(top, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(top, text="Destination Folder (on NAS):").pack(pady=5)
-        ent_dest = ttk.Entry(top)
-        ent_dest.pack(pady=5)
+        # Job Name
+        ttk.Label(main_frame, text="Job Name:").pack(anchor=tk.W, pady=(0, 5))
+        ent_name = ttk.Entry(main_frame)
+        ent_name.pack(fill=tk.X, pady=(0, 15))
+        
+        # Source Folders (Listbox)
+        ttk.Label(main_frame, text="Source Folders:").pack(anchor=tk.W, pady=(0, 5))
+        
+        frame_sources = ttk.Frame(main_frame)
+        frame_sources.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
+        
+        list_sources = tk.Listbox(frame_sources, height=6, bg="#3c3c3c", fg="#ffffff", selectbackground="#007acc", borderwidth=0)
+        list_sources.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        scrollbar_sources = ttk.Scrollbar(frame_sources, orient="vertical", command=list_sources.yview)
+        scrollbar_sources.pack(side=tk.RIGHT, fill=tk.Y)
+        list_sources.config(yscrollcommand=scrollbar_sources.set)
+        
+        # Source Buttons
+        frame_source_btns = ttk.Frame(main_frame)
+        frame_source_btns.pack(fill=tk.X, pady=(0, 15))
+        
+        def add_source():
+            d = filedialog.askdirectory(title="Select Source Folder")
+            if d:
+                # Avoid duplicates
+                if d not in list_sources.get(0, tk.END):
+                    list_sources.insert(tk.END, d)
+        
+        def remove_source():
+            selection = list_sources.curselection()
+            if selection:
+                list_sources.delete(selection[0])
+                
+        ttk.Button(frame_source_btns, text="Add Folder", command=add_source).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(frame_source_btns, text="Remove Selected", command=remove_source).pack(side=tk.LEFT)
+
+        # Destination Folder
+        ttk.Label(main_frame, text="Destination Folder (on NAS):").pack(anchor=tk.W, pady=(0, 5))
+        
+        frame_dest = ttk.Frame(main_frame)
+        frame_dest.pack(fill=tk.X, pady=(0, 5))
+        
+        ent_dest = ttk.Entry(frame_dest)
+        ent_dest.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        
+        def browse_dest():
+            # Note: Browsing network locations might require user to select mapped drive or Network in dialog
+            d = filedialog.askdirectory(title="Select Destination Folder")
+            if d:
+                # If path is irrelevant (e.g. user wants to type UNC), they can still type.
+                ent_dest.delete(0, tk.END)
+                ent_dest.insert(0, d)
+                
+        ttk.Button(frame_dest, text="Browse...", command=browse_dest).pack(side=tk.LEFT)
+        
+        ttk.Label(main_frame, text="Note: For NAS, use UNC path if not mapped (e.g. \\\\Server\\Share\\Folder)", font=("Segoe UI", 8)).pack(anchor=tk.W, pady=(0, 20))
+
+        # Save / Cancel
+        frame_actions = ttk.Frame(main_frame)
+        frame_actions.pack(fill=tk.X, side=tk.BOTTOM)
         
         def save():
-            name = ent_name.get()
-            src = ent_source.get()
-            dest = ent_dest.get()
+            name = ent_name.get().strip()
+            sources = list(list_sources.get(0, tk.END))
+            dest = ent_dest.get().strip()
             
-            if not name or not src:
-                messagebox.showwarning("Error", "Name and Source are required.")
+            if not name:
+                messagebox.showwarning("Error", "Job Name is required.", parent=top)
+                return
+            if not sources:
+                messagebox.showwarning("Error", "At least one Source Folder is required.", parent=top)
+                return
+            if not dest:
+                messagebox.showwarning("Error", "Destination Folder is required.", parent=top)
                 return
                 
             job_data = {
                 "name": name,
-                "source_paths": [src],
+                "source_paths": sources,
                 "destination_path": dest,
                 "exclude_patterns": []
             }
-            self.config_manager.add_job(job_data)
-            self._refresh_all_job_lists()
-            top.destroy()
+            try:
+                self.config_manager.add_job(job_data)
+                self._refresh_all_job_lists()
+                top.destroy()
+                messagebox.showinfo("Success", f"Job '{name}' created successfully.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save job: {e}", parent=top)
             
-        ttk.Button(top, text="Save Job", command=save).pack(pady=20)
+        ttk.Button(frame_actions, text="Save Job", command=save).pack(side=tk.RIGHT)
+        ttk.Button(frame_actions, text="Cancel", command=top.destroy).pack(side=tk.RIGHT, padx=(0, 10))
 
     def _delete_job(self):
         selected = self.tree_jobs.selection()
@@ -327,29 +469,53 @@ class MainWindow(tk.Tk):
             return
 
         self.btn_backup.state(['disabled'])
+        self.btn_pause.state(['!disabled'])
+        self.btn_stop.state(['!disabled'])
+        self.btn_pause.config(text="Pause") # Reset text
+        
         self.lbl_status.config(text="Starting backup...")
         self.progress_var.set(0)
+        
+        # Clear log area
+        self.log_area.config(state='normal')
+        self.log_area.delete('1.0', tk.END)
+        self.log_area.config(state='disabled')
         
         # Run in thread
         threading.Thread(target=self._run_backup_thread, args=(job_name,), daemon=True).start()
 
     def _run_backup_thread(self, job_name):
-        engine = BackupEngine(self.config_manager)
+        self.current_engine = BackupEngine(self.config_manager)
         
         def progress_callback(processed, total, msg):
             # Update UI from thread safely
             if total > 0:
                 pct = (processed / total) * 100
                 self.after(0, lambda: self.progress_var.set(pct))
+            
             self.after(0, lambda: self.lbl_status.config(text=msg))
+            # Log to text area
+            if msg and "Uploading" in msg or "Deleting" in msg or "Error" in msg or "failed" in msg or "Scanning" in msg or "completed" in msg:
+                 self.after(0, lambda: self._log(msg))
 
-        success = engine.run_job(job_name, progress_callback)
-        
-        self.after(0, lambda: self.btn_backup.state(['!disabled']))
-        if success:
-            self.after(0, lambda: messagebox.showinfo("Backup", "Backup completed successfully!"))
-        else:
-            self.after(0, lambda: messagebox.showerror("Backup", "Backup failed. Check logs."))
+        try:
+            success = self.current_engine.run_job(job_name, progress_callback)
+        except Exception as e:
+            success = False
+            self.after(0, lambda: self._log(f"Critical Error: {e}"))
+
+        # Cleanup UI
+        def cleanup():
+            self.btn_backup.state(['!disabled'])
+            self.btn_pause.state(['disabled'])
+            self.btn_stop.state(['disabled'])
+            self.current_engine = None
+            if success:
+                messagebox.showinfo("Backup", "Backup completed successfully!")
+            else:
+                messagebox.showerror("Backup", "Backup failed or stopped. Check logs.")
+
+        self.after(0, cleanup)
 
     def _enable_reminder(self):
         # We need to know the executable path. sys.executable usually handles pyinstaller exe.

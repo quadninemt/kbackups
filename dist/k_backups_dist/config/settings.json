@@ -4,5 +4,14 @@
         "username": "",
         "password": ""
     },
-    "jobs": []
+    "jobs": [
+        {
+            "name": "Test 1",
+            "source_paths": [
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/QuadNine Ltd/Accounts/Accounts - Bank Statements/2014"
+            ],
+            "destination_path": "//DiskStation/kcbackups/testing",
+            "exclude_patterns": []
+        }
+    ]
 }

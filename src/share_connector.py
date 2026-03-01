@@ -63,8 +63,14 @@ class ShareConnector:
             
             # Ensure the directory exists
             remote_dir = os.path.dirname(full_remote_path)
-            if not self.path_exists(remote_dir):
-                self.create_directory(remote_dir)
+            # Create directory directly using smbclient to avoid double-prefix issue via self.create_directory wrapper
+            try:
+                smbclient.makedirs(remote_dir, exist_ok=True)
+            except Exception:
+                pass
+
+            
+            # Check if file exists to handle update? smbclient 'w' mode truncates, which is fine for backup update.
 
             with open(local_path, 'rb') as local_file:
                 with smbclient.open_file(full_remote_path, mode='wb') as remote_file:

@@ -1,5 +1,6 @@
 import os
 import logging
+import time
 from src.file_scanner import FileScanner
 from src.manifest_manager import ManifestManager
 from src.share_connector import ShareConnector
@@ -10,12 +11,39 @@ class BackupEngine:
         self.logger = logging.getLogger(__name__)
         self.file_scanner = FileScanner()
         self.manifest_manager = ManifestManager()
+        self._stop_requested = False
+        self._pause_requested = False
+
+    def request_stop(self):
+        self._stop_requested = True
+
+    def request_pause(self):
+        self._pause_requested = True
+
+    def resume(self):
+        self._pause_requested = False
+
+    def _check_pause_stop(self):
+        """Returns True if stopped, blocking if paused."""
+        if self._stop_requested:
+            self.logger.info("Backup stopped by user.")
+            return True
+        
+        while self._pause_requested:
+            if self._stop_requested:
+                self.logger.info("Backup stopped by user during pause.")
+                return True
+            time.sleep(0.5)
+        return False
 
     def run_job(self, job_name, progress_callback=None):
         """
         Run a backup job by name.
         progress_callback: function(current_step, total_steps, message)
         """
+        self._stop_requested = False
+        self._pause_requested = False
+
         # 1. Get job configuration
         jobs = self.config_manager.get_jobs()
         job_config = next((j for j in jobs if j.get("name") == job_name), None)
@@ -45,23 +73,48 @@ class BackupEngine:
             return False
 
         try:
-            # 3. Scan local files
+            # 3. Check Destination validity
+            if not self._validate_and_prepare_destination(connector, destination_folder, progress_callback):
+                return False
+
+            if self._check_pause_stop(): return False
+
+            # 4. Scan local files
             if progress_callback:
                 progress_callback(0, 0, "Scanning local files...")
             
-            local_files = self.file_scanner.scan(source_paths, excludes)
+            # Check source existence
+            valid_sources = []
+            for src in source_paths:
+                if os.path.exists(src):
+                    valid_sources.append(src)
+                else:
+                    msg = f"Warning: Source path not found: {src}"
+                    self.logger.warning(msg)
+                    if progress_callback: progress_callback(0, 0, msg)
+            
+            if not valid_sources:
+                msg = "Error: No valid source paths found."
+                self.logger.error(msg)
+                if progress_callback: progress_callback(0, 0, msg)
+                return False
+
+            local_files = self.file_scanner.scan(valid_sources, excludes)
             # Map path -> metadata for O(1) lookup
             local_files_map = {f['path']: f for f in local_files}
             
-            # 4. Get manifest
+            if self._check_pause_stop(): return False
+
+            # 5. Get manifest
             manifest_files = self.manifest_manager.get_job_files(job_name)
             
-            # 5. Diff & Identify operations
+            # 6. Diff & Identify operations
             to_upload = []  # List of local file metadata dicts
             to_delete = []  # List of (path, metadata_dict) tuples
             
             # Detect new or changed files
             for path, meta in local_files_map.items():
+                if self._check_pause_stop(): return False
                 manifest_meta = manifest_files.get(path)
                 
                 is_changed = False
@@ -79,6 +132,7 @@ class BackupEngine:
 
             # Detect deleted files (present in manifest but not locally)
             for path, meta in manifest_files.items():
+                if self._check_pause_stop(): return False
                 if path not in local_files_map:
                     to_delete.append((path, meta))
 
@@ -88,14 +142,12 @@ class BackupEngine:
             
             processed = 0
             
-            # 6. Process Delete
+            # 7. Process Delete
             for path, item in to_delete:
+                if self._check_pause_stop(): return False
+
                 rel_path = item['rel_path']
-                # Construct remote path
-                # Note: destination_folder might be empty or a subfolder on the share
-                # share_connector joins addresses.
-                # If destination_folder is "MyBackup", and rel_path is "Photos/img.jpg" -> "MyBackup/Photos/img.jpg"
-                remote_rel_path = os.path.join(destination_folder, rel_path).replace("\\", "/") # Ensure forward slashes for smbclient sometimes? No backslashes are fine on Windows, but smbclient handles both usually. Let's stick to os.path.join.
+                remote_rel_path = os.path.join(destination_folder, rel_path)
                 
                 if progress_callback:
                     progress_callback(processed, total_ops, f"Deleting {rel_path}...")
@@ -105,8 +157,10 @@ class BackupEngine:
                 
                 processed += 1
             
-            # 7. Process Upload
+            # 8. Process Upload
             for meta in to_upload:
+                if self._check_pause_stop(): return False
+
                 full_path = meta['path']
                 rel_path = meta['rel_path']
                 
@@ -117,16 +171,13 @@ class BackupEngine:
                 if meta.get('is_placeholder'):
                     if not self.file_scanner.hydrate_file(full_path):
                          self.logger.warning(f"Skipping upload for {full_path}: Hydration failed.")
+                         if progress_callback: progress_callback(processed, total_ops, f"Skipping {rel_path}: Hydration failed")
                          processed += 1
                          continue
 
                 remote_rel_path = os.path.join(destination_folder, rel_path)
                 
-                # We need to ensure directory exists before upload? 
-                # ShareConnector.upload_file handles directory creation.
                 if connector.upload_file(full_path, remote_rel_path):
-                    # Update manifest
-                    # We might want to re-stat the file to get exact size/mtime after upload/hydration
                     try:
                         uploaded_stat = os.stat(full_path)
                         self.manifest_manager.update_file_state(
@@ -138,6 +189,8 @@ class BackupEngine:
                         )
                     except OSError:
                          pass
+                else:
+                    if progress_callback: progress_callback(processed, total_ops, f"Failed to upload {rel_path}")
                 
                 processed += 1
             
@@ -154,6 +207,19 @@ class BackupEngine:
             
         finally:
             connector.disconnect()
+
+    def _validate_and_prepare_destination(self, connector, destination_folder, progress_callback):
+        """Ensure destination folder exists on NAS."""
+        try:
+            if not connector.path_exists(destination_folder):
+                if progress_callback: progress_callback(0, 0, f"Creating remote directory: {destination_folder}")
+                return connector.create_directory(destination_folder)
+            return True
+        except Exception as e:
+            msg = f"Failed to access/create destination '{destination_folder}': {e}"
+            self.logger.error(msg)
+            if progress_callback: progress_callback(0, 0, msg)
+            return False
 
     def restore_job(self, job_name, restore_dest, progress_callback=None):
         """Restore all files for a job to a local folder."""
