@@ -1,9 +1,9 @@
 import json
 import os
+import sys
 import logging
 
 class ConfigManager:
-    DEFAULT_CONFIG_PATH = os.path.join("config", "settings.json")
     DEFAULT_CONFIG = {
         "nas": {
             "address": "",
@@ -14,10 +14,30 @@ class ConfigManager:
     }
 
     def __init__(self, config_path=None):
-        self.config_path = config_path or self.DEFAULT_CONFIG_PATH
+        self.config_path = config_path or self._get_default_config_path()
         self.config = self.DEFAULT_CONFIG.copy()
         self.logger = logging.getLogger(__name__)
         self.load_config()
+
+    def _get_default_config_path(self):
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable (PyInstaller)
+            # Look for config in dist/k_backups_dist/config/settings.json relative to executable
+            exe_dir = os.path.dirname(sys.executable)
+            dist_config = os.path.join(exe_dir, "config", "settings.json")
+            if os.path.exists(dist_config):
+                return dist_config
+            # fallback: try one level up (for some PyInstaller setups)
+            parent_dist_config = os.path.join(os.path.dirname(exe_dir), "config", "settings.json")
+            if os.path.exists(parent_dist_config):
+                return parent_dist_config
+            # fallback to root config
+            return os.path.join(exe_dir, "..", "config", "settings.json")
+        else:
+            # Running as python script
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            base_path = os.path.dirname(current_dir)
+            return os.path.join(base_path, "config", "settings.json")
 
     def load_config(self):
         """Load configuration from the JSON file."""
