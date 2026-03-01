@@ -49,7 +49,7 @@ class FileScanner:
                             'is_placeholder': is_placeholder
                         })
                     except OSError as e:
-                        self.logger.error(f"Error accessing file {full_path}: {e}")
+                        self.logger.error(f"Error accessing file {full_path}: {e}", exc_info=True)
 
         self.logger.info(f"Scanned {len(file_list)} files.")
         return file_list
@@ -70,7 +70,7 @@ class FileScanner:
                 f.read(1)
             return True
         except Exception as e:
-            self.logger.error(f"Failed to hydrate {file_path}: {e}")
+            self.logger.error(f"Failed to hydrate {file_path}: {e}", exc_info=True)
             return False
 
     def _is_excluded(self, path, base_path, excludes):

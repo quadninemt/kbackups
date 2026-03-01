@@ -36,10 +36,15 @@ class SchedulerManager:
                 self.logger.info("Daily reminder task created successfully.")
                 return True
             else:
-                self.logger.error(f"Failed to create task: {result.stderr}")
+                self.logger.error(
+                    "Failed to create task '%s' (return code %s). stderr: %s",
+                    task_name,
+                    result.returncode,
+                    result.stderr,
+                )
                 return False
         except Exception as e:
-            self.logger.error(f"Error creating task: {e}")
+            self.logger.error(f"Error creating task '{task_name}': {e}", exc_info=True)
             return False
 
     def remove_reminder(self, task_name="k_backups_reminder"):
@@ -50,8 +55,13 @@ class SchedulerManager:
                 self.logger.info("Task deleted successfully.")
                 return True
             else:
-                self.logger.warning(f"Failed to delete task (maybe didn't exist): {result.stderr}")
+                self.logger.warning(
+                    "Failed to delete task '%s' (return code %s). stderr: %s",
+                    task_name,
+                    result.returncode,
+                    result.stderr,
+                )
                 return False
         except Exception as e:
-            self.logger.error(f"Error deleting task: {e}")
+            self.logger.error(f"Error deleting task '{task_name}': {e}", exc_info=True)
             return False

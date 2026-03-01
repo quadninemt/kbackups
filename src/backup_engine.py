@@ -43,6 +43,7 @@ class BackupEngine:
         """
         self._stop_requested = False
         self._pause_requested = False
+            self.logger.info("Starting backup job '%s'.", job_name)
 
         # 1. Get job configuration
         jobs = self.config_manager.get_jobs()
@@ -55,6 +56,13 @@ class BackupEngine:
         source_paths = job_config.get("source_paths", [])
         excludes = job_config.get("exclude_patterns", [])
         destination_folder = job_config.get("destination_path", "") # e.g., "MyBackup"
+            self.logger.info(
+                "Job '%s' config: %d source path(s), destination='%s', %d exclude pattern(s).",
+                job_name,
+                len(source_paths),
+                destination_folder,
+                len(excludes),
+            )
         
         nas_config = self.config_manager.get_nas_settings()
         nas_address = nas_config.get("address")
@@ -137,6 +145,12 @@ class BackupEngine:
                     to_delete.append((path, meta))
 
             total_ops = len(to_upload) + len(to_delete)
+                self.logger.info(
+                    "Job '%s' operations prepared: %d upload(s), %d delete(s).",
+                    job_name,
+                    len(to_upload),
+                    len(to_delete),
+                )
             if progress_callback:
                 progress_callback(0, total_ops, f"Found {len(to_upload)} files to upload, {len(to_delete)} to delete.")
             
@@ -188,7 +202,12 @@ class BackupEngine:
                             uploaded_stat.st_mtime
                         )
                     except OSError:
-                         pass
+                         self.logger.warning(
+                             "Uploaded file stat refresh failed for %s (job '%s').",
+                             full_path,
+                             job_name,
+                             exc_info=True,
+                         )
                 else:
                     if progress_callback: progress_callback(processed, total_ops, f"Failed to upload {rel_path}")
                 
@@ -196,11 +215,12 @@ class BackupEngine:
             
             if progress_callback:
                 progress_callback(total_ops, total_ops, "Backup completed successfully.")
+                self.logger.info("Backup job '%s' completed successfully.", job_name)
             
             return True
 
         except Exception as e:
-            self.logger.error(f"Backup failed: {e}")
+                self.logger.error(f"Backup failed: {e}", exc_info=True)
             if progress_callback:
                 progress_callback(0, 0, f"Error: {str(e)}")
             return False
@@ -217,12 +237,13 @@ class BackupEngine:
             return True
         except Exception as e:
             msg = f"Failed to access/create destination '{destination_folder}': {e}"
-            self.logger.error(msg)
+                self.logger.error(msg, exc_info=True)
             if progress_callback: progress_callback(0, 0, msg)
             return False
 
     def restore_job(self, job_name, restore_dest, progress_callback=None):
         """Restore all files for a job to a local folder."""
+        self.logger.info("Starting restore job '%s' to '%s'.", job_name, restore_dest)
         # 1. Get job configuration
         jobs = self.config_manager.get_jobs()
         job_config = next((j for j in jobs if j.get("name") == job_name), None)
@@ -239,6 +260,7 @@ class BackupEngine:
         job_folder = job_config.get("destination_path", "")
 
         if not nas_address or not nas_user:
+            self.logger.error("NAS configuration missing for restore job '%s'.", job_name)
             return False
 
         connector = ShareConnector(nas_address, nas_user, nas_pass)
@@ -267,10 +289,11 @@ class BackupEngine:
                 
             if progress_callback:
                 progress_callback(total_files, total_files, "Restore completed.")
+                self.logger.info("Restore job '%s' completed successfully.", job_name)
             return True
             
         except Exception as e:
-            self.logger.error(f"Restore failed: {e}")
+                self.logger.error(f"Restore failed: {e}", exc_info=True)
             if progress_callback: progress_callback(0, 0, f"Error: {e}")
             return False
         finally:

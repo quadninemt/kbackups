@@ -27,7 +27,7 @@ class ManifestManager:
                 """)
                 conn.commit()
         except Exception as e:
-            self.logger.error(f"Failed to initialize manifest DB: {e}")
+            self.logger.error(f"Failed to initialize manifest DB: {e}", exc_info=True)
 
     def get_file_state(self, job_name, file_path):
         """Get the stored state of a file."""
@@ -43,7 +43,7 @@ class ManifestManager:
                     return {'size': row[0], 'mtime': row[1]}
                 return None
         except Exception as e:
-            self.logger.error(f"Error getting file state for {file_path}: {e}")
+            self.logger.error(f"Error getting file state for {file_path}: {e}", exc_info=True)
             return None
 
     def update_file_state(self, job_name, file_path, rel_path, size, mtime):
@@ -60,7 +60,7 @@ class ManifestManager:
                 )
                 conn.commit()
         except Exception as e:
-            self.logger.error(f"Error updating file state for {file_path}: {e}")
+            self.logger.error(f"Error updating file state for {file_path}: {e}", exc_info=True)
 
     def remove_file_state(self, job_name, file_path):
         """Remove a file from the manifest."""
@@ -73,7 +73,7 @@ class ManifestManager:
                 )
                 conn.commit()
         except Exception as e:
-            self.logger.error(f"Error removing file state for {file_path}: {e}")
+            self.logger.error(f"Error removing file state for {file_path}: {e}", exc_info=True)
 
     def get_job_files(self, job_name):
         """Get all files associated with a job. Returns dict {path: {metadata}}."""
@@ -95,7 +95,7 @@ class ManifestManager:
                     }
                 return result
         except Exception as e:
-            self.logger.error(f"Error getting job files for {job_name}: {e}")
+            self.logger.error(f"Error getting job files for {job_name}: {e}", exc_info=True)
             return {}
 
     def clear_job_manifest(self, job_name):
@@ -106,4 +106,4 @@ class ManifestManager:
                 cursor.execute("DELETE FROM files WHERE job_name=?", (job_name,))
                 conn.commit()
         except Exception as e:
-            self.logger.error(f"Error clearing manifest for {job_name}: {e}")
+            self.logger.error(f"Error clearing manifest for {job_name}: {e}", exc_info=True)

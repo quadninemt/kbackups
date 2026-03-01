@@ -15,6 +15,9 @@ The project will create a backup utility for users to back up files on their com
 - **Config & Manifest Storage:**
   - Use **JSON** for storing configuration (including credentials in plain text for simplicity).
   - Use **JSON** or **SQLite** for the local file manifest.
+  - Canonical settings path is **`config/settings.json`** (relative to app root) for both development and packaged runs.
+  - On startup, if legacy **`settings.json`** exists in app root and canonical file is missing, migrate it to **`config/settings.json`**.
+  - If settings JSON is invalid, preserve it as **`config/settings.json.invalid`** and regenerate defaults.
 - **Packaging:**
   - Use PyInstaller to create a **folder-based distribution** (not a single-file exe) to ensure faster startup and cleaner dependency management.
   - **Self-Contained:** The final output must not require the end user to have Python or any libraries installed.

@@ -24,6 +24,19 @@ This application is distributed as a **portable folder**. There is no complex in
 2.  Extract the folder to a location of your choice (e.g., `C:\Apps\k_backups`).
 3.  Open the folder and run `BackupUtility.exe`.
 
+## Settings File Location
+
+The app stores and reads settings from:
+
+*   `config/settings.json` (inside the app folder)
+
+Behavior on startup:
+
+*   If `config/settings.json` exists, it is loaded.
+*   If only a legacy `settings.json` exists in the app root, it is automatically copied to `config/settings.json` on first run.
+*   If the file is missing, a default `config/settings.json` is created.
+*   If the file contains invalid JSON, the invalid file is preserved as `config/settings.json.invalid` and a new default `config/settings.json` is created.
+
 ## How to Use
 
 ### 1. Connecting to your NAS

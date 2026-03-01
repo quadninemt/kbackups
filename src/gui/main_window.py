@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox, filedialog, scrolledtext
 import os
 import sys
 import threading
+from datetime import datetime
 from src.config_manager import ConfigManager
 from src.scheduler_manager import SchedulerManager
 from src.backup_engine import BackupEngine
@@ -135,6 +136,18 @@ class MainWindow(tk.Tk):
         self.lbl_status = ttk.Label(self.tab_dashboard, text="Ready")
         self.lbl_status.pack(pady=5)
 
+        # Settings file status
+        frame_settings_status = ttk.LabelFrame(self.tab_dashboard, text="Settings File")
+        frame_settings_status.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+        self.lbl_settings_path = ttk.Label(frame_settings_status, text="")
+        self.lbl_settings_path.pack(anchor=tk.W, padx=8, pady=(6, 2))
+
+        self.lbl_settings_state = ttk.Label(frame_settings_status, text="")
+        self.lbl_settings_state.pack(anchor=tk.W, padx=8, pady=(0, 8))
+
+        self._refresh_settings_file_status()
+
         # Log Area
         frame_logs = ttk.LabelFrame(self.tab_dashboard, text="Activity Log")
         frame_logs.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -147,6 +160,19 @@ class MainWindow(tk.Tk):
         self.log_area.insert(tk.END, message + "\n")
         self.log_area.see(tk.END)
         self.log_area.config(state='disabled')
+
+    def _refresh_settings_file_status(self):
+        config_path = os.path.abspath(self.config_manager.config_path)
+        self.lbl_settings_path.config(text=f"Path: {config_path}")
+
+        if os.path.exists(config_path):
+            try:
+                modified = datetime.fromtimestamp(os.path.getmtime(config_path)).strftime("%Y-%m-%d %H:%M:%S")
+                self.lbl_settings_state.config(text=f"Status: Found | Last updated: {modified}")
+            except Exception:
+                self.lbl_settings_state.config(text="Status: Found")
+        else:
+            self.lbl_settings_state.config(text="Status: Missing")
 
     def _pause_backup(self):
         if hasattr(self, 'current_engine') and self.current_engine:
@@ -440,6 +466,7 @@ class MainWindow(tk.Tk):
         user = self.ent_nas_user.get()
         pwd = self.ent_nas_pass.get()
         self.config_manager.set_nas_settings(addr, user, pwd)
+        self._refresh_settings_file_status()
         messagebox.showinfo("Saved", "NAS settings saved successfully.")
 
     def _refresh_all_job_lists(self):

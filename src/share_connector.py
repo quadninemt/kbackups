@@ -25,14 +25,14 @@ class ShareConnector:
             try:
                  smbclient.listdir(self.address)
             except Exception as e:
-                 self.logger.warning(f"Connection registered but listing failed: {e}")
+                  self.logger.warning(f"Connection registered but listing failed: {e}", exc_info=True)
                  # We still consider it connected if register_session worked, but maybe credentials are wrong
                  # verify with a stat check on the share root
             
             self.logger.info(f"Connected to {server_name}")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to connect to {self.address}: {e}")
+            self.logger.error(f"Failed to connect to {self.address}: {e}", exc_info=True)
             return False
 
     def disconnect(self):
@@ -53,7 +53,7 @@ class ShareConnector:
                     # For recursive listing, we might need a separate function or modify this one
                     pass
         except Exception as e:
-            self.logger.error(f"Error listing files in {remote_path}: {e}")
+            self.logger.error(f"Error listing files in {remote_path}: {e}", exc_info=True)
             raise
 
     def upload_file(self, local_path, remote_path):
@@ -79,7 +79,7 @@ class ShareConnector:
             self.logger.info(f"Uploaded {local_path} to {full_remote_path}")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to upload {local_path}: {e}")
+            self.logger.error(f"Failed to upload {local_path} to {remote_path}: {e}", exc_info=True)
             return False
 
     def download_file(self, remote_path, local_path):
@@ -99,7 +99,7 @@ class ShareConnector:
             self.logger.info(f"Downloaded {full_remote_path} to {local_path}")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to download {remote_path}: {e}")
+            self.logger.error(f"Failed to download {remote_path} to {local_path}: {e}", exc_info=True)
             return False
 
     def delete_file(self, remote_path):
@@ -110,7 +110,7 @@ class ShareConnector:
             self.logger.info(f"Deleted {full_path}")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to delete {remote_path}: {e}")
+            self.logger.error(f"Failed to delete {remote_path}: {e}", exc_info=True)
             return False
 
     def create_directory(self, remote_path):
@@ -121,7 +121,7 @@ class ShareConnector:
             self.logger.info(f"Created directory {full_path}")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to create directory {remote_path}: {e}")
+            self.logger.error(f"Failed to create directory {remote_path}: {e}", exc_info=True)
             return False
 
     def path_exists(self, remote_path):
@@ -134,7 +134,7 @@ class ShareConnector:
         except FileNotFoundError:
             return False
         except Exception as e:
-            self.logger.error(f"Error checking path {remote_path}: {e}")
+            self.logger.error(f"Error checking path {remote_path}: {e}", exc_info=True)
             return False
 
     def _validate_path(self, path):

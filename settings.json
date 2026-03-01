@@ -1,0 +1,17 @@
+{
+    "nas": {
+        "address": "\\DiskStation",
+        "username": "kevin",
+        "password": "b0xm4n"
+    },
+    "jobs": [
+        {
+            "name": "Test 1",
+            "source_paths": [
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/Documents/9 Victoria Mansions/Flat"
+            ],
+            "destination_path": "\kcbackups\testing",
+            "exclude_patterns": []
+        }
+    ]
+}
