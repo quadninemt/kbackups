@@ -1,6 +1,10 @@
 import os
 import logging
 import time
+import re
+import zipfile
+import tempfile
+from datetime import datetime
 from src.file_scanner import FileScanner
 from src.manifest_manager import ManifestManager
 from src.share_connector import ShareConnector
@@ -59,6 +63,139 @@ class BackupEngine:
             source_folder_map[source_path] = folder_name
 
         return source_folder_map
+
+    def _sanitize_job_name(self, job_name):
+        safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", (job_name or "").strip())
+        return safe.strip("_") or "job"
+
+    def _resolve_manifest_db_path(self):
+        manifest_path = self.manifest_manager.db_path
+        if os.path.isabs(manifest_path):
+            return manifest_path
+
+        cwd_candidate = os.path.abspath(manifest_path)
+        if os.path.exists(cwd_candidate):
+            return cwd_candidate
+
+        config_path = os.path.abspath(getattr(self.config_manager, "config_path", ""))
+        if config_path:
+            config_dir = os.path.dirname(config_path)
+            config_candidate = os.path.abspath(os.path.join(config_dir, os.path.basename(manifest_path)))
+            return config_candidate
+
+        return cwd_candidate
+
+    def _create_snapshot_zip(self, job_name):
+        config_path = os.path.abspath(getattr(self.config_manager, "config_path", ""))
+        manifest_path = self._resolve_manifest_db_path()
+
+        snapshot_inputs = [
+            (config_path, "config/settings.json"),
+            (manifest_path, "config/manifest.db"),
+        ]
+
+        missing_inputs = [source_path for source_path, _ in snapshot_inputs if not source_path or not os.path.exists(source_path)]
+        if missing_inputs:
+            raise FileNotFoundError(f"Snapshot source file(s) missing: {missing_inputs}")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        safe_job_name = self._sanitize_job_name(job_name)
+        snapshot_name = f"_k_backups_snapshot_{safe_job_name}_{timestamp}.zip"
+        snapshot_path = os.path.abspath(os.path.join(tempfile.gettempdir(), snapshot_name))
+
+        with zipfile.ZipFile(snapshot_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zip_handle:
+            for source_path, archive_path in snapshot_inputs:
+                zip_handle.write(source_path, arcname=archive_path)
+
+        return snapshot_path, snapshot_name
+
+    def _cleanup_old_job_snapshots(self, connector, job_name, destination_folder, keep_snapshot_name):
+        safe_job_name = self._sanitize_job_name(job_name)
+        snapshot_prefix = f"_k_backups_snapshot_{safe_job_name}_"
+
+        try:
+            remote_files = list(connector.list_files(destination_folder))
+        except Exception as e:
+            self.logger.error(
+                "Failed to list destination for snapshot cleanup (job '%s'): %s",
+                job_name,
+                e,
+                exc_info=True,
+            )
+            return False
+
+        old_snapshot_names = [
+            name for name, _, _ in remote_files
+            if name.startswith(snapshot_prefix)
+            and name.endswith(".zip")
+            and name != keep_snapshot_name
+        ]
+
+        for snapshot_name in old_snapshot_names:
+            remote_snapshot_path = os.path.join(destination_folder, snapshot_name)
+            if not connector.delete_file(remote_snapshot_path):
+                self.logger.error(
+                    "Failed to delete old snapshot for job '%s': %s",
+                    job_name,
+                    remote_snapshot_path,
+                )
+                return False
+
+            self.logger.info(
+                "Deleted old snapshot for job '%s': %s",
+                job_name,
+                remote_snapshot_path,
+            )
+
+        return True
+
+    def _upload_job_snapshot(self, connector, job_name, destination_folder, progress_callback=None):
+        snapshot_path = None
+        try:
+            snapshot_path, snapshot_name = self._create_snapshot_zip(job_name)
+            remote_snapshot_path = os.path.join(destination_folder, snapshot_name)
+
+            if progress_callback:
+                progress_callback(0, 0, f"Uploading job snapshot: {snapshot_name}...")
+
+            if not connector.upload_file(snapshot_path, remote_snapshot_path):
+                self.logger.error(
+                    "Failed to upload snapshot for job '%s' to '%s'.",
+                    job_name,
+                    remote_snapshot_path,
+                )
+                return False
+
+            if progress_callback:
+                progress_callback(0, 0, "Removing older snapshots...")
+
+            if not self._cleanup_old_job_snapshots(connector, job_name, destination_folder, snapshot_name):
+                self.logger.error(
+                    "Failed to enforce snapshot retention for job '%s'.",
+                    job_name,
+                )
+                return False
+
+            self.logger.info(
+                "Snapshot uploaded for job '%s': %s",
+                job_name,
+                remote_snapshot_path,
+            )
+            return True
+        except Exception as e:
+            self.logger.error(
+                "Failed to create/upload snapshot for job '%s': %s",
+                job_name,
+                e,
+                exc_info=True,
+            )
+            return False
+        finally:
+            if snapshot_path and os.path.exists(snapshot_path):
+                try:
+                    os.remove(snapshot_path)
+                except OSError:
+                    self.logger.warning("Failed to remove temporary snapshot file: %s", snapshot_path, exc_info=True)
 
     def run_job(self, job_name, progress_callback=None):
         """
@@ -250,6 +387,14 @@ class BackupEngine:
                     if progress_callback: progress_callback(processed, total_ops, f"Failed to upload {rel_path}")
                 
                 processed += 1
+
+            if progress_callback:
+                progress_callback(processed, total_ops, "Creating and uploading job snapshot...")
+
+            if not self._upload_job_snapshot(connector, job_name, destination_folder, progress_callback):
+                if progress_callback:
+                    progress_callback(processed, total_ops, "Backup failed: could not upload job snapshot.")
+                return False
             
             if progress_callback:
                 progress_callback(total_ops, total_ops, "Backup completed successfully.")

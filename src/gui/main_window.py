@@ -5,6 +5,11 @@ import sys
 import threading
 from datetime import datetime
 try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+except Exception:
+    DND_FILES = None
+    TkinterDnD = None
+try:
     from tkfilebrowser import askopendirnames
 except Exception:
     askopendirnames = None
@@ -12,7 +17,7 @@ from src.config_manager import ConfigManager
 from src.scheduler_manager import SchedulerManager
 from src.backup_engine import BackupEngine
 
-class MainWindow(tk.Tk):
+class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
     def __init__(self, config_manager):
         super().__init__()
         self.config_manager = config_manager
@@ -185,6 +190,44 @@ class MainWindow(tk.Tk):
         selected_path = filedialog.askdirectory(title="Select Source Folder", parent=parent)
         return [selected_path] if selected_path else []
 
+    def _parse_dropped_paths(self, raw_data):
+        if not raw_data:
+            return []
+
+        try:
+            parts = self.tk.splitlist(raw_data)
+        except Exception:
+            parts = [raw_data]
+
+        parsed = []
+        for part in parts:
+            normalized = part.strip().strip("{}").strip('"')
+            if normalized:
+                parsed.append(os.path.normpath(normalized))
+
+        return parsed
+
+    def _enable_source_list_drop(self, listbox):
+        if DND_FILES is None:
+            return
+
+        def on_drop(event):
+            dropped_paths = self._parse_dropped_paths(event.data)
+            existing_paths = set(listbox.get(0, tk.END))
+
+            for dropped_path in dropped_paths:
+                if os.path.isdir(dropped_path) and dropped_path not in existing_paths:
+                    listbox.insert(tk.END, dropped_path)
+                    existing_paths.add(dropped_path)
+
+            return "break"
+
+        try:
+            listbox.drop_target_register(DND_FILES)
+            listbox.dnd_bind("<<Drop>>", on_drop)
+        except Exception:
+            pass
+
     def _refresh_settings_file_status(self):
         config_path = os.path.abspath(self.config_manager.config_path)
         self.lbl_settings_path.config(text=f"Path: {config_path}")
@@ -297,6 +340,8 @@ class MainWindow(tk.Tk):
         scrollbar_sources = ttk.Scrollbar(frame_sources, orient="vertical", command=list_sources.yview)
         scrollbar_sources.pack(side=tk.RIGHT, fill=tk.Y)
         list_sources.config(yscrollcommand=scrollbar_sources.set)
+
+        self._enable_source_list_drop(list_sources)
         
         # Source Buttons
         frame_source_btns = ttk.Frame(main_frame)
@@ -319,6 +364,13 @@ class MainWindow(tk.Tk):
                 
         ttk.Button(frame_source_btns, text="Add Folder", command=add_source).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(frame_source_btns, text="Remove Selected", command=remove_source).pack(side=tk.LEFT)
+
+        if DND_FILES is not None:
+            ttk.Label(
+                main_frame,
+                text="Tip: Drag and drop folder(s) from Explorer into the source list.",
+                font=("Segoe UI", 8)
+            ).pack(anchor=tk.W, pady=(0, 12))
 
         # Destination Folder
         ttk.Label(main_frame, text="Destination Folder (on NAS):").pack(anchor=tk.W, pady=(0, 5))
@@ -436,6 +488,8 @@ class MainWindow(tk.Tk):
         scrollbar_sources.pack(side=tk.RIGHT, fill=tk.Y)
         list_sources.config(yscrollcommand=scrollbar_sources.set)
 
+        self._enable_source_list_drop(list_sources)
+
         for source_path in existing_job.get("source_paths", []):
             list_sources.insert(tk.END, source_path)
 
@@ -459,6 +513,13 @@ class MainWindow(tk.Tk):
 
         ttk.Button(frame_source_btns, text="Add Folder", command=add_source).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(frame_source_btns, text="Remove Selected", command=remove_source).pack(side=tk.LEFT)
+
+        if DND_FILES is not None:
+            ttk.Label(
+                main_frame,
+                text="Tip: Drag and drop folder(s) from Explorer into the source list.",
+                font=("Segoe UI", 8)
+            ).pack(anchor=tk.W, pady=(0, 12))
 
         ttk.Label(main_frame, text="Destination Folder (on NAS):").pack(anchor=tk.W, pady=(0, 5))
 

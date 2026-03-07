@@ -1,0 +1,4 @@
+Can it keep the pc alive while the backup is ongoing ?
+
+Can it save the config file whenever it makes backups?
+

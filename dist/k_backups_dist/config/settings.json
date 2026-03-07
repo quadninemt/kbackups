@@ -8,14 +8,24 @@
         {
             "name": "QuadNine Backup",
             "source_paths": [
-                "C:/Users/kevin/OneDrive - QuadNine Ltd/Documents",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/__Ai",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/_to_sort",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/_to_sort/_From E6410",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/_to_sort/From DropBox",
                 "C:/Users/kevin/OneDrive - QuadNine Ltd/Data",
                 "C:/Users/kevin/OneDrive - QuadNine Ltd/Desktop",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/Documents",
                 "C:/Users/kevin/OneDrive - QuadNine Ltd/Holidays",
                 "C:/Users/kevin/OneDrive - QuadNine Ltd/Interests",
-                "C:/Users/kevin/OneDrive - QuadNine Ltd/QuadNine Ltd"
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/Personal Tax",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/Pictures",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/Programming",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/Property",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/QuadNine Ltd",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/Scouts",
+                "C:/Users/kevin/OneDrive - QuadNine Ltd/SnapMaker"
             ],
-            "destination_path": "\\\\kcbackups\\testing",
+            "destination_path": "\\\\kcbackups\\QuadNine 2026-03-01",
             "exclude_patterns": []
         }
     ]

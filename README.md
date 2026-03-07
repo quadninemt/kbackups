@@ -1,74 +1,117 @@
-# k_backups: Windows to Synology NAS Backup Utility
+# k_backups: Windows to NAS Backup Utility
 
-A simple, efficient, and reliable backup tool designed for Windows users to safeguard their files by synchronizing them to a Synology NAS.
+`k_backups` is a Windows desktop backup tool that syncs local folders to an SMB share (such as Synology NAS), tracks file state locally, and supports full restore back to your PC.
 
-## Key Features
+## Latest Features
 
-*   **Smart Incremental Backups**: Only uploads new, changed, or deleted files to save time and bandwidth.
-*   **OneDrive Integration**: Automatically downloads (hydrates) OneDrive placeholders before backing them up, ensuring your cloud files are safe locally and on your NAS.
-*   **Multiple Backup Jobs**: Create and manage different backup routines (e.g., "Weekly Documents", "Monthly Photos") with unique schedules and settings.
-*   **Modern Dark Mode Interface**: Features a clean, easy-to-use GUI with the "Azure Dark" theme.
-*   **Helpful Reminders**: Set up Windows scheduled tasks to remind you when it's time to run a manual backup.
-*   **Privacy First**: Your NAS credentials and file manifests are stored locally on your machine.
+- **Incremental sync engine (upload + delete):**
+	- Detects new/changed files and uploads only what changed.
+	- Detects local deletions and removes matching files from destination.
+	- Uses size + mtime comparison with tolerance for SMB/FAT timestamp differences.
+
+- **SQLite manifest tracking:**
+	- Stores per-job file state in `config/manifest.db`.
+	- Tracks `file_path`, `rel_path`, `size`, and `mtime` for differential backups.
+
+- **Per-job state snapshot ZIPs:**
+	- At the end of each successful backup job, the app creates a ZIP snapshot containing:
+		- `config/settings.json`
+		- `config/manifest.db`
+	- The ZIP is uploaded into that job's destination folder on the NAS.
+	- Retention policy: only the most recent snapshot ZIP for that job is kept (older job snapshots are deleted).
+	- Snapshot filename format: `_k_backups_snapshot_<job_name>_<timestamp>.zip`
+
+- **Multi-source backup jobs:**
+	- Each job can include multiple source folders.
+	- Source folder names are preserved at destination with collision-safe naming (e.g., `Docs`, `Docs_2`).
+	- Jobs can be added, edited, and deleted from the GUI.
+
+- **Backup controls in Dashboard:**
+	- Start backup with live progress updates.
+	- **Pause / Resume** running jobs.
+	- **Stop** currently running jobs safely.
+
+- **Restore workflow:**
+	- Full restore by job from NAS to a local folder.
+	- Recreates directory structure from the stored manifest.
+
+- **OneDrive placeholder hydration:**
+	- Detects OneDrive placeholders and attempts to hydrate before upload.
+	- Skips file upload when hydration fails and continues remaining operations.
+
+- **Improved configuration handling:**
+	- Canonical settings file: `config/settings.json`.
+	- Auto-migrates legacy root `settings.json` to `config/settings.json`.
+	- On invalid JSON, preserves broken file as `config/settings.json.invalid` and regenerates defaults.
+	- Dashboard shows settings file path and last modified timestamp.
+
+- **Windows reminder scheduling:**
+	- Creates/removes a monthly Windows Task Scheduler reminder for manual backup runs.
+	- Reminder only (does not force automatic unattended backup execution).
+
+- **Usability improvements:**
+	- Dark-themed Tkinter UI.
+	- Drag-and-drop source folder support (when `tkinterdnd2` is available).
+	- Multi-folder picker support (when `tkfilebrowser` is available).
+
+- **Logging & diagnostics:**
+	- Rotating log file at `logs/backup_utility.log` (up to 3 backups, 5 MB each).
+	- Console + file logging for troubleshooting.
 
 ## Requirements
 
-*   **Operating System**: Windows 10 or 11.
-*   **Storage**: A Synology NAS accessible via your local network (SMB).
+- **OS:** Windows 10 or 11
+- **Destination:** SMB-accessible share (Synology NAS supported)
+- **Python (development mode):** 3.10+
 
-## Installation
+## Installation (End Users)
 
-This application is distributed as a **portable folder**. There is no complex installer or need for Python/dependencies.
+This app is intended to be distributed as a **portable folder build**.
 
-1.  Download the latest release zip file.
-2.  Extract the folder to a location of your choice (e.g., `C:\Apps\k_backups`).
-3.  Open the folder and run `BackupUtility.exe`.
+1. Download the latest release zip.
+2. Extract to a folder (for example, `C:\Apps\k_backups`).
+3. Launch the packaged executable from that folder.
 
-## Settings File Location
+## Development Setup
 
-The app stores and reads settings from:
+1. Run `setup_dev.bat`.
+2. Start GUI with:
 
-*   `config/settings.json` (inside the app folder)
+	 ```bash
+	 python main.py
+	 ```
 
-Behavior on startup:
+3. Optional CLI run (executes first configured job):
 
-*   If `config/settings.json` exists, it is loaded.
-*   If only a legacy `settings.json` exists in the app root, it is automatically copied to `config/settings.json` on first run.
-*   If the file is missing, a default `config/settings.json` is created.
-*   If the file contains invalid JSON, the invalid file is preserved as `config/settings.json.invalid` and a new default `config/settings.json` is created.
+	 ```bash
+	 python run_cli.py
+	 ```
 
-## How to Use
+4. Build packaged app:
 
-### 1. Connecting to your NAS
+	 ```bash
+	 build.bat
+	 ```
 
-On the main screen, enter your Synology NAS details:
-*   **Address**: Use the UNC format (e.g., `\\DiskStation\home\backups`).
-*   **Credentials**: Enter your NAS username and password.
-*   **Test Connection**: Click to ensure the utility can access your shared folder.
+## Configuration Files
 
-### 2. Creating a Backup Job
+- `config/settings.json` – NAS settings and job definitions
+- `config/manifest.db` – SQLite file manifest for incremental sync
+- `logs/backup_utility.log` – runtime log output
 
-*   Click **New Job** to start a configuration.
-*   **Source**: Select the folders on your computer you want to back up.
-*   **Exclude**: Optionally, choose specific subfolders or file types to skip.
-*   **Save Job**: Give your job a name (e.g., "Personal Files").
+## Quick Usage
 
-### 3. Running a Backup
+1. Open **Settings** tab and enter NAS address (UNC), username, and password.
+2. Open **Manage Jobs** and create at least one job (name, source folder(s), destination folder).
+3. Open **Dashboard**, select a job, and click **Backup Now**.
+4. Use **Pause**, **Resume**, or **Stop** while a backup is running.
+5. Use **Restore** tab to restore a job to a local destination folder.
 
-*   Select a job from the list.
-*   Click **Backup Now**.
-*   The status bar will show progress as files are analyzed and transferred.
+## Notes & Current Scope
 
-### 4. Restoring Files
-
-*   Go to the **Restore** tab.
-*   Select the backup source and the destination on your PC.
-*   Choose specific files or restore the entire directory.
-
-## Troubleshooting
-
-*   **OneDrive Files not backing up?** Ensure your computer is connected to the internet so placeholders can be downloaded.
-*   **Connection Failed?** Check that your NAS is powered on and your computer is on the same network.
+- Exclude patterns are supported by the engine/config, but the current GUI does not expose exclude editing yet.
+- Restore is job-level full restore using manifest entries.
+- Credentials are stored in local settings JSON (plain text).
 
 ---
-*Built with Python & Tkinter.*
+Built with Python + Tkinter.

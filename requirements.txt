@@ -2,3 +2,4 @@ smbprotocol
 pyinstaller
 pytest
 tkfilebrowser
+tkinterdnd2
