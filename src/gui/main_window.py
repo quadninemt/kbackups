@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, scrolledtext
 import os
 import sys
+import re
 import threading
 from datetime import datetime
 try:
@@ -420,7 +421,8 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
                 "name": name,
                 "source_paths": sources,
                 "destination_path": dest,
-                "exclude_patterns": []
+                "exclude_patterns": [],
+                "schedule": self._default_job_schedule(name)
             }
             try:
                 self.config_manager.add_job(job_data)
@@ -439,6 +441,14 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
             return
         idx = int(selected[0])
         if messagebox.askyesno("Confirm", "Delete selected job?"):
+            jobs = self.config_manager.get_jobs()
+            if 0 <= idx < len(jobs):
+                job = jobs[idx]
+                schedule = job.get("schedule", {})
+                task_name = (schedule.get("task_name") or self._default_task_name_for_job(job.get("name", "job"))).strip()
+                if task_name and self.scheduler_manager.task_exists(task_name):
+                    self.scheduler_manager.remove_reminder(task_name)
+
             self.config_manager.delete_job(idx)
             self._refresh_all_job_lists()
 
@@ -562,12 +572,13 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
                 messagebox.showwarning("Error", "Destination Folder is required.", parent=top)
                 return
 
-            job_data = {
+            job_data = existing_job.copy()
+            job_data.update({
                 "name": name,
                 "source_paths": sources,
                 "destination_path": dest,
                 "exclude_patterns": existing_job.get("exclude_patterns", [])
-            }
+            })
 
             try:
                 updated = self.config_manager.update_job(job_index, job_data)
@@ -607,18 +618,63 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         # Save Button
         ttk.Button(frame_nas, text="Save Settings", command=self._save_nas_settings).grid(row=3, column=1, pady=10)
 
-        # Scheduler
-        frame_scheduler = ttk.LabelFrame(self.tab_settings, text="Schedule")
+        # Scheduler (per-job)
+        frame_scheduler = ttk.LabelFrame(self.tab_settings, text="Job Reminder Schedule")
         frame_scheduler.pack(fill=tk.X, padx=10, pady=10)
-        
-        ttk.Button(frame_scheduler, text="Enable Monthly Reminder", command=self._enable_reminder).pack(side=tk.LEFT, padx=10, pady=10)
-        ttk.Button(frame_scheduler, text="Remove Reminder", command=self._remove_reminder).pack(side=tk.LEFT, padx=10, pady=10)
+
+        ttk.Label(frame_scheduler, text="Job:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        self.combo_schedule_job = ttk.Combobox(frame_scheduler, state="readonly", width=30)
+        self.combo_schedule_job.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        self.combo_schedule_job.bind("<<ComboboxSelected>>", self._on_schedule_job_selected)
+
+        self.var_schedule_enabled = tk.BooleanVar(value=False)
+        ttk.Checkbutton(frame_scheduler, text="Enabled", variable=self.var_schedule_enabled).grid(row=1, column=1, padx=5, pady=5, sticky="w")
+
+        ttk.Label(frame_scheduler, text="Task Name:").grid(row=2, column=0, padx=5, pady=5, sticky="e")
+        self.ent_schedule_task_name = ttk.Entry(frame_scheduler, width=40)
+        self.ent_schedule_task_name.grid(row=2, column=1, padx=5, pady=5, sticky="w")
+
+        ttk.Label(frame_scheduler, text="Reminder Message:").grid(row=3, column=0, padx=5, pady=5, sticky="e")
+        self.ent_schedule_message = ttk.Entry(frame_scheduler, width=50)
+        self.ent_schedule_message.grid(row=3, column=1, padx=5, pady=5, sticky="w")
+
+        ttk.Label(frame_scheduler, text="Recurrence:").grid(row=4, column=0, padx=5, pady=5, sticky="e")
+        self.combo_schedule_recurrence = ttk.Combobox(frame_scheduler, state="readonly", values=["Weekly", "Monthly"], width=15)
+        self.combo_schedule_recurrence.grid(row=4, column=1, padx=5, pady=5, sticky="w")
+        self.combo_schedule_recurrence.bind("<<ComboboxSelected>>", self._on_schedule_recurrence_changed)
+
+        ttk.Label(frame_scheduler, text="Time (HH:MM):").grid(row=5, column=0, padx=5, pady=5, sticky="e")
+        self.ent_schedule_time = ttk.Entry(frame_scheduler, width=10)
+        self.ent_schedule_time.grid(row=5, column=1, padx=5, pady=5, sticky="w")
+
+        ttk.Label(frame_scheduler, text="Weekly Day:").grid(row=6, column=0, padx=5, pady=5, sticky="e")
+        self.combo_schedule_weekday = ttk.Combobox(
+            frame_scheduler,
+            state="readonly",
+            values=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+            width=15
+        )
+        self.combo_schedule_weekday.grid(row=6, column=1, padx=5, pady=5, sticky="w")
+
+        ttk.Label(frame_scheduler, text="Monthly Day (1-31):").grid(row=7, column=0, padx=5, pady=5, sticky="e")
+        self.spin_schedule_dom = tk.Spinbox(frame_scheduler, from_=1, to=31, width=7)
+        self.spin_schedule_dom.grid(row=7, column=1, padx=5, pady=5, sticky="w")
+
+        frame_schedule_actions = ttk.Frame(frame_scheduler)
+        frame_schedule_actions.grid(row=8, column=1, padx=5, pady=10, sticky="w")
+        ttk.Button(frame_schedule_actions, text="Save Schedule", command=self._save_job_schedule).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(frame_schedule_actions, text="Remove Schedule", command=self._remove_job_schedule).pack(side=tk.LEFT)
+
+        self.lbl_schedule_status = ttk.Label(frame_scheduler, text="")
+        self.lbl_schedule_status.grid(row=9, column=0, columnspan=2, padx=5, pady=(0, 5), sticky="w")
         
         # Load existing
         nas_config = self.config_manager.get_nas_settings()
         self.ent_nas_address.insert(0, nas_config.get("address", ""))
         self.ent_nas_user.insert(0, nas_config.get("username", ""))
         self.ent_nas_pass.insert(0, nas_config.get("password", ""))
+
+        self._refresh_schedule_jobs()
 
     def _init_restore_tab(self):
         frame_top = ttk.Frame(self.tab_restore)
@@ -703,6 +759,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self._refresh_jobs_list(preferred_job_name=preferred_job_name)
         self._refresh_jobs_tree()
         self._refresh_restore_jobs(preferred_job_name=preferred_job_name)
+        self._refresh_schedule_jobs(preferred_job_name=preferred_job_name)
 
     def _refresh_jobs_list(self, preferred_job_name=None):
         jobs = self.config_manager.get_jobs()
@@ -793,27 +850,210 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
 
         self.after(0, cleanup)
 
-    def _enable_reminder(self):
-        # We need to know the executable path. sys.executable usually handles pyinstaller exe.
-        import sys
-        
-        task_name = "k_backups_monthly"
-        executable = sys.executable
-        if not getattr(sys, 'frozen', False):
-            # Development mode: python gui script?
-            # Or just pass python executable
-            pass
-            
-        success = self.scheduler_manager.create_monthly_reminder(task_name)
-        if success:
-            messagebox.showinfo("Schedule", "Monthly reminder enabled.")
-        else:
-            messagebox.showerror("Schedule", "Failed to create task (Check logs/Run as Admin).")
+    def _sanitize_task_token(self, value):
+        safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", (value or "").strip())
+        return safe.strip("_") or "job"
 
-    def _remove_reminder(self):
-        task_name = "k_backups_monthly"
-        success = self.scheduler_manager.remove_reminder(task_name)
-        if success:
-            messagebox.showinfo("Schedule", "Reminder removed.")
+    def _default_task_name_for_job(self, job_name):
+        return f"k_backups_reminder_{self._sanitize_task_token(job_name)}"
+
+    def _default_job_schedule(self, job_name):
+        return {
+            "enabled": False,
+            "recurrence": "Weekly",
+            "time": "09:00",
+            "day_of_week": "Monday",
+            "day_of_month": 1,
+            "task_name": self._default_task_name_for_job(job_name),
+            "message": f"Reminder: run backup job '{job_name}'."
+        }
+
+    def _get_job_by_name(self, job_name):
+        jobs = self.config_manager.get_jobs()
+        for index, job in enumerate(jobs):
+            if job.get("name") == job_name:
+                return index, job
+        return None, None
+
+    def _refresh_schedule_jobs(self, preferred_job_name=None):
+        if not hasattr(self, 'combo_schedule_job'):
+            return
+
+        jobs = self.config_manager.get_jobs()
+        names = [job.get("name", "") for job in jobs if job.get("name")]
+        self.combo_schedule_job['values'] = names
+
+        if not names:
+            self.combo_schedule_job.set("")
+            self.lbl_schedule_status.config(text="No jobs available. Create a job first.")
+            return
+
+        if preferred_job_name and preferred_job_name in names:
+            selected_name = preferred_job_name
         else:
-            messagebox.showerror("Schedule", "Failed to remove task.")
+            current = self.combo_schedule_job.get()
+            selected_name = current if current in names else names[0]
+
+        self.combo_schedule_job.set(selected_name)
+        self._on_schedule_job_selected()
+
+    def _on_schedule_recurrence_changed(self, event=None):
+        recurrence = (self.combo_schedule_recurrence.get() or "Weekly").strip().lower()
+        if recurrence == "weekly":
+            self.combo_schedule_weekday.configure(state="readonly")
+            self.spin_schedule_dom.configure(state="disabled")
+        else:
+            self.combo_schedule_weekday.configure(state="disabled")
+            self.spin_schedule_dom.configure(state="normal")
+
+    def _on_schedule_job_selected(self, event=None):
+        job_name = self.combo_schedule_job.get()
+        _, job = self._get_job_by_name(job_name)
+        if not job:
+            return
+
+        schedule = job.get("schedule") or self._default_job_schedule(job_name)
+        self.var_schedule_enabled.set(bool(schedule.get("enabled", False)))
+        self.combo_schedule_recurrence.set(schedule.get("recurrence", "Weekly"))
+        self.ent_schedule_time.delete(0, tk.END)
+        self.ent_schedule_time.insert(0, schedule.get("time", "09:00"))
+
+        self.combo_schedule_weekday.set(schedule.get("day_of_week", "Monday"))
+
+        self.spin_schedule_dom.delete(0, tk.END)
+        self.spin_schedule_dom.insert(0, str(schedule.get("day_of_month", 1)))
+
+        task_name = schedule.get("task_name") or self._default_task_name_for_job(job_name)
+        self.ent_schedule_task_name.delete(0, tk.END)
+        self.ent_schedule_task_name.insert(0, task_name)
+
+        message_text = schedule.get("message") or f"Reminder: run backup job '{job_name}'."
+        self.ent_schedule_message.delete(0, tk.END)
+        self.ent_schedule_message.insert(0, message_text)
+
+        self._on_schedule_recurrence_changed()
+        self.lbl_schedule_status.config(text=f"Editing schedule for job: {job_name}")
+
+    def _build_schedule_from_form(self, job_name):
+        recurrence = (self.combo_schedule_recurrence.get() or "Weekly").strip().title()
+        if recurrence not in ("Weekly", "Monthly"):
+            raise ValueError("Recurrence must be Weekly or Monthly.")
+
+        run_time = (self.ent_schedule_time.get() or "").strip()
+        if not run_time:
+            raise ValueError("Time is required in HH:MM format.")
+
+        task_name = (self.ent_schedule_task_name.get() or "").strip()
+        if not task_name:
+            task_name = self._default_task_name_for_job(job_name)
+
+        message_text = (self.ent_schedule_message.get() or "").strip()
+        if not message_text:
+            message_text = f"Reminder: run backup job '{job_name}'."
+
+        day_of_week = (self.combo_schedule_weekday.get() or "Monday").strip().title()
+        try:
+            day_of_month = int((self.spin_schedule_dom.get() or "1").strip())
+        except ValueError:
+            raise ValueError("Monthly day must be a number between 1 and 31.")
+
+        if day_of_month < 1 or day_of_month > 31:
+            raise ValueError("Monthly day must be between 1 and 31.")
+
+        return {
+            "enabled": bool(self.var_schedule_enabled.get()),
+            "recurrence": recurrence,
+            "time": run_time,
+            "day_of_week": day_of_week,
+            "day_of_month": day_of_month,
+            "task_name": task_name,
+            "message": message_text,
+        }
+
+    def _save_job_schedule(self):
+        job_name = self.combo_schedule_job.get()
+        if not job_name:
+            messagebox.showwarning("Schedule", "Select a job first.")
+            return
+
+        job_index, existing_job = self._get_job_by_name(job_name)
+        if existing_job is None:
+            messagebox.showerror("Schedule", "Selected job no longer exists.")
+            self._refresh_schedule_jobs()
+            return
+
+        try:
+            schedule = self._build_schedule_from_form(job_name)
+        except ValueError as validation_error:
+            messagebox.showwarning("Schedule", str(validation_error))
+            return
+
+        old_schedule = existing_job.get("schedule", {})
+        old_task_name = (old_schedule.get("task_name") or "").strip()
+        new_task_name = schedule["task_name"]
+
+        if schedule["enabled"]:
+            created = self.scheduler_manager.create_or_update_reminder(
+                task_name=new_task_name,
+                recurrence=schedule["recurrence"],
+                run_time=schedule["time"],
+                reminder_message=schedule["message"],
+                day_of_week=schedule["day_of_week"],
+                day_of_month=schedule["day_of_month"],
+            )
+            if not created:
+                messagebox.showerror("Schedule", "Failed to create/update schedule task. Check logs and task permissions.")
+                return
+
+            self.scheduler_manager.set_task_enabled(new_task_name, True)
+        else:
+            if self.scheduler_manager.task_exists(new_task_name):
+                if not self.scheduler_manager.set_task_enabled(new_task_name, False):
+                    messagebox.showerror("Schedule", "Failed to disable the schedule task.")
+                    return
+
+        if old_task_name and old_task_name != new_task_name and self.scheduler_manager.task_exists(old_task_name):
+            self.scheduler_manager.remove_reminder(old_task_name)
+
+        job_data = existing_job.copy()
+        job_data["schedule"] = schedule
+
+        if not self.config_manager.update_job(job_index, job_data):
+            messagebox.showerror("Schedule", "Failed to save schedule to config.")
+            return
+
+        self._refresh_settings_file_status()
+        self.lbl_schedule_status.config(text=f"Schedule saved for job: {job_name}")
+        messagebox.showinfo("Schedule", "Schedule saved successfully.")
+
+    def _remove_job_schedule(self):
+        job_name = self.combo_schedule_job.get()
+        if not job_name:
+            messagebox.showwarning("Schedule", "Select a job first.")
+            return
+
+        job_index, existing_job = self._get_job_by_name(job_name)
+        if existing_job is None:
+            messagebox.showerror("Schedule", "Selected job no longer exists.")
+            self._refresh_schedule_jobs()
+            return
+
+        schedule = existing_job.get("schedule") or {}
+        task_name = (schedule.get("task_name") or self._default_task_name_for_job(job_name)).strip()
+
+        if task_name and self.scheduler_manager.task_exists(task_name):
+            if not self.scheduler_manager.remove_reminder(task_name):
+                messagebox.showerror("Schedule", "Failed to remove task from Windows Scheduler.")
+                return
+
+        job_data = existing_job.copy()
+        job_data["schedule"] = self._default_job_schedule(job_name)
+
+        if not self.config_manager.update_job(job_index, job_data):
+            messagebox.showerror("Schedule", "Failed to update config while removing schedule.")
+            return
+
+        self._refresh_settings_file_status()
+        self._on_schedule_job_selected()
+        self.lbl_schedule_status.config(text=f"Schedule removed for job: {job_name}")
+        messagebox.showinfo("Schedule", "Schedule removed.")

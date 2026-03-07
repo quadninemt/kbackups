@@ -46,7 +46,10 @@
 	- Dashboard shows settings file path and last modified timestamp.
 
 - **Windows reminder scheduling:**
-	- Creates/removes a monthly Windows Task Scheduler reminder for manual backup runs.
+	- Per-job reminder schedules managed from **Settings**.
+	- Supports **Weekly** and **Monthly** recurrence.
+	- Configurable enable/disable, time, weekly day, monthly day, task name, and custom reminder message.
+	- Uses Windows Task Scheduler with console popup reminders (`msg`).
 	- Reminder only (does not force automatic unattended backup execution).
 
 - **Usability improvements:**
