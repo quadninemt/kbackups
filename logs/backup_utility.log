@@ -1,3 +1,0 @@
-2026-03-01 13:25:15,482 | INFO | backup_logger | MainThread | Logger initialized. Log file: C:\k_backups\k_backups\logs\backup_utility.log
-2026-03-01 13:25:15,482 | INFO | backup_logger | MainThread | logging-smoke-start
-2026-03-01 13:25:15,484 | INFO | src.config_manager | MainThread | Configuration loaded successfully.

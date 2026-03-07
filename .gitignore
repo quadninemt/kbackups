@@ -31,6 +31,9 @@ config/settings.json.invalid
 
 # Local helper files
 settings copy.json
+settings.json
+Screenshot*.png
+old/
 
 # OS/editor noise
 .DS_Store

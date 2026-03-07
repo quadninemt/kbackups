@@ -96,6 +96,19 @@ This app is intended to be distributed as a **portable folder build**.
 	 build.bat
 	 ```
 
+## Schedule Smoke Test
+
+Run the reusable scheduler smoke test (create/disable/remove) from repo root:
+
+```powershell
+.\scripts\smoke_schedule.ps1 -Mode both
+```
+
+Modes:
+- `-Mode weekly`
+- `-Mode monthly`
+- `-Mode both`
+
 ## Configuration Files
 
 - `config/settings.json` – NAS settings and job definitions
