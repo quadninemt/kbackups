@@ -1,0 +1,38 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Test and tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build artifacts (PyInstaller / packaging)
+build/
+dist/
+*.egg-info/
+
+# Logs and runtime outputs
+logs/
+*.log
+*.log.*
+
+# Local runtime data and backups
+config/manifest.db
+config/*.db-shm
+config/*.db-wal
+config/settings.json.invalid
+
+# Local helper files
+settings copy.json
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
