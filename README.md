@@ -1,6 +1,6 @@
-# k_backups: Windows to NAS Backup Utility
+# k_backups: Windows Backup Utility
 
-`k_backups` is a Windows desktop backup tool that syncs local folders to an SMB share (such as Synology NAS), tracks file state locally, and supports full restore back to your PC.
+`k_backups` is a Windows desktop backup tool that syncs local folders to a **Synology NAS** (over SMB) or a **local/USB drive**, tracks file state locally, and supports full restore back to your PC.
 
 ## Latest Features
 
@@ -20,6 +20,11 @@
 	- The ZIP is uploaded into that job's destination folder on the NAS.
 	- Retention policy: only the most recent snapshot ZIP for that job is kept (older job snapshots are deleted).
 	- Snapshot filename format: `_k_backups_snapshot_<job_name>_<timestamp>.zip`
+
+- **Local and NAS destinations:**
+	- Backs up to a Synology NAS over SMB (UNC path, e.g. `\\DiskStation\share\folder`).
+	- Backs up to a local or USB/external drive (drive letter path, e.g. `E:\backups`).
+	- Destination type is detected automatically — no NAS credentials needed for local drives.
 
 - **Multi-source backup jobs:**
 	- Each job can include multiple source folders.

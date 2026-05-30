@@ -124,6 +124,8 @@ build.bat
 
 ## Recently Completed
 
+- Local/USB drive support: `LocalConnector` added to `src/share_connector.py`; `BackupEngine` auto-selects connector based on destination path (drive letter = local, UNC = SMB)
+
 - Fixed `ManifestManager` path resolution (`sys.frozen` support, removed `BackupEngine._resolve_manifest_db_path` workaround)
 - Fixed `ShareConnector.disconnect()` server name bug
 - Batch manifest writes via `executemany` — single transaction per job instead of per-file

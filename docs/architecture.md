@@ -140,6 +140,17 @@ This allows recovery of job configuration and manifest from the NAS if the local
 
 ---
 
+## Destination Types
+
+The backup engine auto-detects which connector to use based on the destination path format:
+
+| Destination format | Connector | NAS credentials |
+|---|---|---|
+| `E:\backups`, `C:\folder\` (drive letter) | `LocalConnector` — uses `shutil.copy2` + `os` | Not required |
+| `\\DiskStation\share\folder` (UNC path) | `ShareConnector` — uses `smbclient` | Required |
+
+`LocalConnector` supports USB drives, external hard drives, and any locally-mounted path. It preserves file metadata (timestamps) via `shutil.copy2`. All other engine behaviour (incremental sync, manifest, snapshots, pause/stop) is identical for both connector types.
+
 ## Packaging
 
 - PyInstaller **folder-based** distribution (not single-file exe) — faster startup, cleaner deps.

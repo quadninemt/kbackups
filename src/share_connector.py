@@ -3,6 +3,77 @@ import os
 import shutil
 import logging
 
+
+class LocalConnector:
+    """Connector for local and USB/external drive destinations."""
+
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self._connected = False
+
+    def connect(self):
+        self._connected = True
+        self.logger.info("LocalConnector: using local filesystem.")
+        return True
+
+    def disconnect(self):
+        self._connected = False
+
+    def upload_file(self, local_path, remote_path):
+        try:
+            os.makedirs(os.path.dirname(remote_path), exist_ok=True)
+            shutil.copy2(local_path, remote_path)
+            self.logger.info("Copied %s → %s", local_path, remote_path)
+            return True
+        except Exception as e:
+            self.logger.error("Failed to copy %s to %s: %s", local_path, remote_path, e, exc_info=True)
+            return False
+
+    def download_file(self, remote_path, local_path):
+        try:
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            shutil.copy2(remote_path, local_path)
+            self.logger.info("Copied %s → %s", remote_path, local_path)
+            return True
+        except Exception as e:
+            self.logger.error("Failed to copy %s to %s: %s", remote_path, local_path, e, exc_info=True)
+            return False
+
+    def delete_file(self, remote_path):
+        try:
+            os.remove(remote_path)
+            self.logger.info("Deleted %s", remote_path)
+            return True
+        except FileNotFoundError:
+            self.logger.warning("Delete skipped — file not found: %s", remote_path)
+            return True
+        except Exception as e:
+            self.logger.error("Failed to delete %s: %s", remote_path, e, exc_info=True)
+            return False
+
+    def create_directory(self, remote_path):
+        try:
+            os.makedirs(remote_path, exist_ok=True)
+            self.logger.info("Created directory %s", remote_path)
+            return True
+        except Exception as e:
+            self.logger.error("Failed to create directory %s: %s", remote_path, e, exc_info=True)
+            return False
+
+    def path_exists(self, remote_path):
+        return os.path.exists(remote_path)
+
+    def list_files(self, remote_path):
+        """List files (non-recursive) in remote_path. Yields (name, size, mtime)."""
+        try:
+            for entry in os.scandir(remote_path):
+                if entry.is_file():
+                    stat = entry.stat()
+                    yield (entry.name, stat.st_size, stat.st_mtime)
+        except Exception as e:
+            self.logger.error("Error listing files in %s: %s", remote_path, e, exc_info=True)
+            raise
+
 class ShareConnector:
     def __init__(self, address, username, password):
         self.address = address

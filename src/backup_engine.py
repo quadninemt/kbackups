@@ -7,7 +7,7 @@ import tempfile
 from datetime import datetime
 from src.file_scanner import FileScanner
 from src.manifest_manager import ManifestManager
-from src.share_connector import ShareConnector
+from src.share_connector import ShareConnector, LocalConnector
 
 
 class BackupEngine:
@@ -56,6 +56,28 @@ class BackupEngine:
                 folder_name = f"{folder_name}_{count}"
             source_folder_map[source_path] = folder_name
         return source_folder_map
+
+    @staticmethod
+    def _is_local_destination(path):
+        """Return True if path is a local filesystem path (not a UNC/SMB path)."""
+        if not path:
+            return False
+        s = path.strip()
+        if s.startswith('\\\\') or s.startswith('//'):
+            return False
+        return len(s) >= 2 and s[1] == ':'
+
+    def _create_connector(self, destination_path, nas_config):
+        """Return the appropriate connector for the destination path."""
+        if self._is_local_destination(destination_path):
+            self.logger.info("Destination '%s' is a local path — using LocalConnector.", destination_path)
+            return LocalConnector()
+        nas_address = nas_config.get("address")
+        nas_user = nas_config.get("username")
+        nas_pass = nas_config.get("password")
+        if not nas_address or not nas_user:
+            return None
+        return ShareConnector(nas_address, nas_user, nas_pass)
 
     def _sanitize_job_name(self, job_name):
         safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", (job_name or "").strip())
@@ -149,18 +171,16 @@ class BackupEngine:
                          job_name, len(source_paths), destination_folder, len(excludes))
 
         nas_config = self.config_manager.get_nas_settings()
-        nas_address = nas_config.get("address")
-        nas_user = nas_config.get("username")
-        nas_pass = nas_config.get("password")
-
-        if not nas_address or not nas_user:
-            self.logger.error("NAS configuration missing.")
+        connector = self._create_connector(destination_folder, nas_config)
+        if connector is None:
+            self.logger.error("NAS configuration missing and destination is not a local path.")
+            if progress_callback:
+                progress_callback(0, 0, "Error: NAS address and username are required for network destinations.")
             return False
 
-        connector = ShareConnector(nas_address, nas_user, nas_pass)
         if not connector.connect():
             if progress_callback:
-                progress_callback(0, 0, "Failed to connect to NAS")
+                progress_callback(0, 0, "Failed to connect to destination.")
             return False
 
         try:
@@ -328,19 +348,15 @@ class BackupEngine:
             return False
 
         nas_config = self.config_manager.get_nas_settings()
-        nas_address = nas_config.get("address")
-        nas_user = nas_config.get("username")
-        nas_pass = nas_config.get("password")
         job_folder = job_config.get("destination_path", "")
-
-        if not nas_address or not nas_user:
+        connector = self._create_connector(job_folder, nas_config)
+        if connector is None:
             self.logger.error("NAS configuration missing for restore job '%s'.", job_name)
             return False
 
-        connector = ShareConnector(nas_address, nas_user, nas_pass)
         if not connector.connect():
             if progress_callback:
-                progress_callback(0, 0, "Failed to connect to NAS")
+                progress_callback(0, 0, "Failed to connect to destination.")
             return False
 
         try:
