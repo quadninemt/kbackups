@@ -143,17 +143,17 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self.btn_stop = ttk.Button(frame_actions, text="Stop", command=self._stop_backup, state="disabled")
         self.btn_stop.pack(side=tk.LEFT, padx=5)
         
-        # Progress indicators (four stat cards)
+        # Progress indicators (five stat cards)
         cards = tk.Frame(self.tab_dashboard, bg="#2b2b2b")
         cards.pack(fill=tk.X, padx=15, pady=10)
-        for i in range(4):
+        for i in range(5):
             cards.columnconfigure(i, weight=1, uniform="cards")
 
         def _make_card(col, caption, color):
             card = tk.Frame(cards, bg="#33373b", highlightbackground="#444a50", highlightthickness=1)
-            card.grid(row=0, column=col, padx=6, sticky="nsew")
+            card.grid(row=0, column=col, padx=5, sticky="nsew")
             tk.Frame(card, bg=color, height=4).pack(fill=tk.X)
-            value = tk.Label(card, text="0", bg="#33373b", fg=color, font=("Segoe UI", 22, "bold"))
+            value = tk.Label(card, text="0", bg="#33373b", fg=color, font=("Segoe UI", 20, "bold"))
             value.pack(pady=(12, 2))
             tk.Label(card, text=caption, bg="#33373b", fg="#c9d1d9", font=("Segoe UI", 9)).pack(pady=(0, 12))
             return value
@@ -161,7 +161,8 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self.card_pct = _make_card(0, "Complete", "#007acc")
         self.card_done = _make_card(1, "Backed Up", "#2ea043")
         self.card_skip = _make_card(2, "Up to Date", "#6e7681")
-        self.card_fail = _make_card(3, "Failed", "#d13438")
+        self.card_del = _make_card(3, "Deleted", "#d29922")
+        self.card_fail = _make_card(4, "Failed", "#d13438")
         self.card_pct.config(text="0%")
 
         self.lbl_status = ttk.Label(self.tab_dashboard, text="Ready")
@@ -851,6 +852,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self.card_pct.config(text="0%")
         self.card_done.config(text="0")
         self.card_skip.config(text="0")
+        self.card_del.config(text="0")
         self.card_fail.config(text="0", fg="#d13438")
 
     def _update_cards(self, pct):
@@ -861,6 +863,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
             return
         self.card_done.config(text=str(stats.get('backed_up', 0)))
         self.card_skip.config(text=str(stats.get('skipped', 0)))
+        self.card_del.config(text=str(stats.get('deleted', 0)))
         failed = stats.get('failed', 0)
         self.card_fail.config(text=(f"⚠ {failed}" if failed > 0 else "0"))
 

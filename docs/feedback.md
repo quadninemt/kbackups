@@ -79,6 +79,14 @@ NOTE: the broken helper is baked into v1.2.0/v1.3.0 — fix requires a **one-tim
 install of v1.3.1**; auto-update works from there. If Avast blocks writes to the
 install folder, add that folder to Avast exceptions.
 
+### [DONE] Add Deleted card; clarify "Up to Date" (it's not always 0)
+Added a fifth dashboard card, **Deleted** (amber), so all three scan-result figures
+are cards: Backed Up / Up to Date / Deleted (plus % Complete and Failed). Engine now
+tracks `stats['deleted']`. Confirmed via a 4-run sandbox that "Up to Date" is only 0
+on the *first* backup (empty manifest); on re-runs it correctly counts unchanged
+files (run2: 0 backed up / 5 up to date; run3: 1 changed / 4 up to date). "files
+found" during scan = files on disk (filesystem), before the manifest diff. (v1.3.5)
+
 ### [DONE] No feedback during the initial file scan
 On "Backup Now" the engine scans all source files (to skip unchanged ones) before
 any progress showed — looked frozen on large OneDrive trees, and the skip outcome was

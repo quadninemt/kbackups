@@ -26,7 +26,7 @@ class BackupEngine:
         # Paths of files that still failed after all retries in the last run.
         self.last_run_failures = []
         # Live counters for the dashboard indicators.
-        self.stats = {'backed_up': 0, 'skipped': 0, 'failed': 0}
+        self.stats = {'backed_up': 0, 'skipped': 0, 'deleted': 0, 'failed': 0}
 
     def request_stop(self):
         self._stop_requested = True
@@ -166,7 +166,7 @@ class BackupEngine:
         self._stop_requested = False
         self._pause_requested = False
         self.last_run_failures = []
-        self.stats = {'backed_up': 0, 'skipped': 0, 'failed': 0}
+        self.stats = {'backed_up': 0, 'skipped': 0, 'deleted': 0, 'failed': 0}
         self.logger.info("Starting backup job '%s'.", job_name)
 
         jobs = self.config_manager.get_jobs()
@@ -302,6 +302,7 @@ class BackupEngine:
                     progress_callback(processed, total_ops, f"Deleting {rel_path}...")
                 if connector.delete_file(remote_rel_path):
                     manifest_deletes.append(path)
+                    self.stats['deleted'] += 1
                 processed += 1
 
             # Process uploads — first pass; collect failures for retry
