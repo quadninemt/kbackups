@@ -179,6 +179,16 @@ The app can update itself from GitHub Releases.
 
 ---
 
+## Resilient Upload / Retry
+
+Uploads are fault-tolerant to handle slow or failing OneDrive hydration and transient network errors:
+
+1. **First pass** — attempt every upload. OneDrive hydration failures are treated as upload failures (not silent skips). Failures are logged with the full path and collected into a retry queue; the run continues.
+2. **Retry passes** — the failed queue is retried up to `MAX_UPLOAD_RETRIES` (default 2) times, with a `RETRY_BACKOFF_SECONDS` (default 3s) wait between passes and re-hydration each attempt. Pause/Stop are honoured throughout.
+3. **Persistent failures** — files still failing after all retries are logged at WARNING (each path listed) and exposed via `BackupEngine.last_run_failures`. They are **not** written to the manifest, so the next backup retries them naturally.
+
+The job still returns success (it ran to completion); the GUI reads `last_run_failures` and shows a "completed with N errors" warning dialog listing the affected paths instead of a plain success message. The final log line summarises uploaded vs. failed counts.
+
 ## Manifest Batch Write Strategy
 
 Manifest updates are accumulated in memory during a backup run and flushed in two batch transactions at the end (one for deletes, one for inserts/updates via `executemany`). This avoids per-file connection open/close overhead on large jobs.

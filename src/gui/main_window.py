@@ -845,8 +845,10 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
             if msg and ("Uploading" in msg or "Deleting" in msg or "Error" in msg or "failed" in msg or "Scanning" in msg or "completed" in msg):
                  self.after(0, lambda: self._log(msg))
 
+        failures = []
         try:
             success = self.current_engine.run_job(job_name, progress_callback)
+            failures = list(getattr(self.current_engine, 'last_run_failures', []))
         except Exception as e:
             success = False
             self.after(0, lambda: self._log(f"Critical Error: {e}"))
@@ -857,8 +859,17 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
             self.btn_pause.state(['disabled'])
             self.btn_stop.state(['disabled'])
             self.current_engine = None
-            if success:
+            if success and not failures:
                 messagebox.showinfo("Backup", "Backup completed successfully!")
+            elif success and failures:
+                preview = "\n".join(f"  • {p}" for p in failures[:10])
+                more = f"\n  …and {len(failures) - 10} more" if len(failures) > 10 else ""
+                messagebox.showwarning(
+                    "Backup completed with errors",
+                    f"Backup finished, but {len(failures)} file(s) failed after retries.\n"
+                    f"They will be retried on the next backup. See the log for details.\n\n"
+                    f"{preview}{more}"
+                )
             else:
                 messagebox.showerror("Backup", "Backup failed or stopped. Check logs.")
 

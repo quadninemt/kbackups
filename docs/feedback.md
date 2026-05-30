@@ -33,8 +33,10 @@ Converted `assets/Quadnine_logo.png` (500×500) into a multi-resolution
 PyInstaller exe icon already reference `assets/app_icon.ico`, so no code/spec
 changes were needed. Removed the stale root `icon.png` (old branding, unused).
 
-### [OPEN] Resilient backup for flaky OneDrive/network files
-Many backups pull from OneDrive; connections can be slow or fail. The app should:
-log each file failure (with path), continue, then retry failed files at the end.
-Files that still fail after retries must be recorded in the backup log.
-(User open to better suggestions — see proposed plan in chat.)
+### [DONE] Resilient backup for flaky OneDrive/network files
+First pass logs each failure (with path) and continues; failed files (including
+OneDrive hydration failures) are retried up to 2× with a 3s backoff. Files still
+failing after retries are logged at WARNING (full paths) and surfaced in the GUI as
+a "completed with N errors" dialog. Failures aren't written to the manifest, so the
+next backup retries them. Added `_upload_one` + retry loop in `BackupEngine`,
+`last_run_failures`, and 5 tests (16 total, all passing).

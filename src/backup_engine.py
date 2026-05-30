@@ -11,6 +11,11 @@ from src.share_connector import ShareConnector, LocalConnector
 
 
 class BackupEngine:
+    # Resilient upload: retry files that fail (e.g. slow/failing OneDrive
+    # hydration or transient network errors) after the first pass.
+    MAX_UPLOAD_RETRIES = 2
+    RETRY_BACKOFF_SECONDS = 3
+
     def __init__(self, config_manager):
         self.config_manager = config_manager
         self.logger = logging.getLogger(__name__)
@@ -18,6 +23,8 @@ class BackupEngine:
         self.manifest_manager = ManifestManager()
         self._stop_requested = False
         self._pause_requested = False
+        # Paths of files that still failed after all retries in the last run.
+        self.last_run_failures = []
 
     def request_stop(self):
         self._stop_requested = True
@@ -156,6 +163,7 @@ class BackupEngine:
         """Run a backup job by name. progress_callback(current, total, message)."""
         self._stop_requested = False
         self._pause_requested = False
+        self.last_run_failures = []
         self.logger.info("Starting backup job '%s'.", job_name)
 
         jobs = self.config_manager.get_jobs()
@@ -268,34 +276,63 @@ class BackupEngine:
                     manifest_deletes.append(path)
                 processed += 1
 
-            # Process uploads
+            # Process uploads — first pass; collect failures for retry
+            failed = []
             for meta in to_upload:
                 if self._check_pause_stop():
                     return False
-                full_path = meta['path']
                 rel_path = meta['rel_path']
                 if progress_callback:
                     progress_callback(processed, total_ops, f"Uploading {rel_path}...")
 
-                if meta.get('is_placeholder'):
-                    if not self.file_scanner.hydrate_file(full_path):
-                        self.logger.warning("Skipping %s: hydration failed.", full_path)
-                        if progress_callback:
-                            progress_callback(processed, total_ops, f"Skipping {rel_path}: hydration failed")
-                        processed += 1
-                        continue
-
-                remote_rel_path = os.path.join(destination_folder, rel_path)
-                if connector.upload_file(full_path, remote_rel_path):
-                    try:
-                        stat = os.stat(full_path)
-                        manifest_updates.append((full_path, rel_path, stat.st_size, stat.st_mtime))
-                    except OSError:
-                        self.logger.warning("Stat refresh failed after upload: %s", full_path, exc_info=True)
+                ok, payload = self._upload_one(connector, meta, destination_folder)
+                if ok:
+                    if payload:
+                        manifest_updates.append(payload)
                 else:
+                    failed.append(meta)
+                    self.logger.warning("Upload failed (%s): %s", payload, meta['path'])
                     if progress_callback:
-                        progress_callback(processed, total_ops, f"Failed to upload {rel_path}")
+                        progress_callback(processed, total_ops, f"Failed ({payload}): {rel_path} — will retry")
                 processed += 1
+
+            # Retry passes for failed files (handles flaky OneDrive/network)
+            for attempt in range(1, self.MAX_UPLOAD_RETRIES + 1):
+                if not failed:
+                    break
+                if self._check_pause_stop():
+                    return False
+                self.logger.info("Retry pass %d/%d for %d failed file(s) (job '%s').",
+                                 attempt, self.MAX_UPLOAD_RETRIES, len(failed), job_name)
+                if progress_callback:
+                    progress_callback(processed, total_ops,
+                                      f"Retry {attempt}/{self.MAX_UPLOAD_RETRIES}: {len(failed)} file(s) failed, retrying...")
+                time.sleep(self.RETRY_BACKOFF_SECONDS)
+
+                still_failed = []
+                for meta in failed:
+                    if self._check_pause_stop():
+                        return False
+                    rel_path = meta['rel_path']
+                    if progress_callback:
+                        progress_callback(processed, total_ops, f"Retrying ({attempt}) {rel_path}...")
+                    ok, payload = self._upload_one(connector, meta, destination_folder)
+                    if ok:
+                        if payload:
+                            manifest_updates.append(payload)
+                        self.logger.info("Retry succeeded: %s", meta['path'])
+                    else:
+                        still_failed.append(meta)
+                failed = still_failed
+
+            # Record persistent failures (not added to manifest, so next run retries them)
+            self.last_run_failures = [m['path'] for m in failed]
+            if failed:
+                self.logger.warning(
+                    "=== Job '%s': %d file(s) FAILED after %d retries ===",
+                    job_name, len(failed), self.MAX_UPLOAD_RETRIES)
+                for m in failed:
+                    self.logger.warning("  FAILED: %s", m['path'])
 
             # Flush manifest changes in two batch transactions
             self.manifest_manager.batch_remove_files(job_name, manifest_deletes)
@@ -309,10 +346,16 @@ class BackupEngine:
                     progress_callback(processed, total_ops, "Backup failed: could not upload job snapshot.")
                 return False
 
+            failure_count = len(self.last_run_failures)
+            if failure_count:
+                final_msg = f"Backup completed with {failure_count} failed file(s) — see log."
+            else:
+                final_msg = "Backup completed successfully."
             if progress_callback:
-                progress_callback(total_ops, total_ops, "Backup completed successfully.")
+                progress_callback(total_ops, total_ops, final_msg)
 
-            self.logger.info("Backup job '%s' completed successfully.", job_name)
+            self.logger.info("Backup job '%s' completed. %d uploaded, %d failed after retries.",
+                             job_name, len(manifest_updates), failure_count)
             return True
 
         except Exception as e:
@@ -322,6 +365,30 @@ class BackupEngine:
             return False
         finally:
             connector.disconnect()
+
+    def _upload_one(self, connector, meta, destination_folder):
+        """
+        Attempt to hydrate (if needed) and upload a single file.
+        Returns (success: bool, payload):
+          - success True, payload = manifest tuple (path, rel_path, size, mtime) or None
+          - success False, payload = short reason string
+        """
+        full_path = meta['path']
+        rel_path = meta['rel_path']
+
+        if meta.get('is_placeholder'):
+            if not self.file_scanner.hydrate_file(full_path):
+                return (False, "hydration failed")
+
+        remote_rel_path = os.path.join(destination_folder, rel_path)
+        if connector.upload_file(full_path, remote_rel_path):
+            try:
+                stat = os.stat(full_path)
+                return (True, (full_path, rel_path, stat.st_size, stat.st_mtime))
+            except OSError:
+                self.logger.warning("Stat refresh failed after upload: %s", full_path, exc_info=True)
+                return (True, None)
+        return (False, "upload failed")
 
     def _validate_and_prepare_destination(self, connector, destination_folder, progress_callback):
         try:

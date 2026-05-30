@@ -105,5 +105,104 @@ class TestLocalConnector(unittest.TestCase):
         self.assertNotIn("subdir", names)
 
 
+class TestBackupEngineRetry(unittest.TestCase):
+    def _make_engine(self):
+        from src.backup_engine import BackupEngine
+        engine = BackupEngine(MagicMock())
+        engine.RETRY_BACKOFF_SECONDS = 0  # no sleep in tests
+        return engine
+
+    def _meta(self, path, rel, placeholder=False):
+        return {'path': path, 'rel_path': rel, 'size': 1, 'mtime': 1.0,
+                'is_placeholder': placeholder}
+
+    def test_upload_one_success(self):
+        engine = self._make_engine()
+        connector = MagicMock()
+        connector.upload_file.return_value = True
+        with patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_size = 10
+            mock_stat.return_value.st_mtime = 123.0
+            ok, payload = engine._upload_one(connector, self._meta(r"C:\a.txt", "a.txt"), "dest")
+        self.assertTrue(ok)
+        self.assertEqual(payload, (r"C:\a.txt", "a.txt", 10, 123.0))
+
+    def test_upload_one_failure(self):
+        engine = self._make_engine()
+        connector = MagicMock()
+        connector.upload_file.return_value = False
+        ok, payload = engine._upload_one(connector, self._meta(r"C:\a.txt", "a.txt"), "dest")
+        self.assertFalse(ok)
+        self.assertEqual(payload, "upload failed")
+
+    def test_upload_one_hydration_failure(self):
+        engine = self._make_engine()
+        connector = MagicMock()
+        engine.file_scanner = MagicMock()
+        engine.file_scanner.hydrate_file.return_value = False
+        ok, payload = engine._upload_one(connector, self._meta(r"C:\a.txt", "a.txt", placeholder=True), "dest")
+        self.assertFalse(ok)
+        self.assertEqual(payload, "hydration failed")
+        connector.upload_file.assert_not_called()
+
+    def test_retry_eventually_succeeds(self):
+        """A file that fails twice then succeeds should not be a persistent failure."""
+        engine = self._make_engine()
+        connector = MagicMock()
+        # Fail, fail, succeed across the 3 attempts (1 initial + 2 retries)
+        connector.upload_file.side_effect = [False, False, True]
+        with patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_size = 1
+            mock_stat.return_value.st_mtime = 1.0
+            # Simulate the engine's retry loop directly via _upload_one calls
+            meta = self._meta(r"C:\flaky.txt", "flaky.txt")
+            results = [engine._upload_one(connector, meta, "dest")[0] for _ in range(3)]
+        self.assertEqual(results, [False, False, True])
+
+    def test_run_job_records_persistent_failure(self):
+        """End-to-end: a permanently failing upload is recorded in last_run_failures."""
+        engine = self._make_engine()
+        cfg = engine.config_manager
+        cfg.get_jobs.return_value = [{
+            'name': 'job1',
+            'source_paths': [r'C:\src'],
+            'exclude_patterns': [],
+            'destination_path': r'E:\backup',  # local dest → LocalConnector
+        }]
+        cfg.get_nas_settings.return_value = {}
+
+        engine.file_scanner = MagicMock()
+        engine.file_scanner.scan.return_value = [
+            {'path': r'C:\src\good.txt', 'rel_path': 'good.txt', 'size': 1, 'mtime': 1.0, 'is_placeholder': False},
+            {'path': r'C:\src\bad.txt', 'rel_path': 'bad.txt', 'size': 1, 'mtime': 1.0, 'is_placeholder': False},
+        ]
+        engine.manifest_manager = MagicMock()
+        engine.manifest_manager.get_job_files.return_value = {}
+
+        # Mock the LocalConnector created inside run_job
+        fake_conn = MagicMock()
+        fake_conn.connect.return_value = True
+        fake_conn.path_exists.return_value = True
+        # good.txt uploads ok; bad.txt always fails
+
+        def upload_side_effect(local, remote):
+            return not local.endswith('bad.txt')
+        fake_conn.upload_file.side_effect = upload_side_effect
+
+        with patch.object(engine, '_create_connector', return_value=fake_conn), \
+             patch.object(engine, '_upload_job_snapshot', return_value=True), \
+             patch('os.path.exists', return_value=True), \
+             patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_size = 1
+            mock_stat.return_value.st_mtime = 1.0
+            result = engine.run_job('job1')
+
+        self.assertTrue(result)  # job ran to completion
+        self.assertEqual(engine.last_run_failures, [r'C:\src\bad.txt'])
+        # bad.txt attempted 1 + MAX_UPLOAD_RETRIES times
+        bad_attempts = sum(1 for c in fake_conn.upload_file.call_args_list if c.args[0].endswith('bad.txt'))
+        self.assertEqual(bad_attempts, 1 + engine.MAX_UPLOAD_RETRIES)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -124,6 +124,7 @@ build.bat
 
 ## Recently Completed
 
+- Resilient uploads: failed files (incl. OneDrive hydration failures) retried up to 2× with backoff; persistent failures logged with paths and surfaced in GUI via `BackupEngine.last_run_failures`
 - Auto-update from GitHub Releases: `src/updater.py` (check/download/self-replace via helper .bat); startup auto-check + "Check for Updates" button in Settings. Each release needs a `.zip` asset with the full dist.
 - Local/USB drive support: `LocalConnector` added to `src/share_connector.py`; `BackupEngine` auto-selects connector based on destination path (drive letter = local, UNC = SMB)
 
