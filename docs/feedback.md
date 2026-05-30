@@ -79,6 +79,18 @@ NOTE: the broken helper is baked into v1.2.0/v1.3.0 — fix requires a **one-tim
 install of v1.3.1**; auto-update works from there. If Avast blocks writes to the
 install folder, add that folder to Avast exceptions.
 
+### [DONE] Auto-update helper died on app exit (v1.3.1/1.3.2) — visible cmd window, no update
+The helper got stuck at the process-wait and was killed when the app exited (log
+stopped at "waiting for PID … to exit"; installed exe stayed v1.3.1). Root cause:
+the app runs inside a Windows **Job Object with kill-on-close**, which also kills a
+merely-detached child. Secondary bug: `timeout` needs stdin, which a detached helper
+lacks, so it aborted. Fix (v1.3.3): launch the helper with `CREATE_BREAKAWAY_FROM_JOB`
+(+ new process group, no window, DEVNULL handles) with a fallback, so it truly
+outlives the app; replaced `timeout` with `ping`-based sleeps. Survival validated in
+a sandbox (helper wrote its marker 3s after the launcher exited; breakaway=True).
+NOTE: the broken launcher is in v1.3.1/1.3.2 too → requires one more **manual install
+of v1.3.3**; auto-update works from there.
+
 ### [DONE] Dashboard: four stat indicators instead of the progress bar
 Replaced the progress bar with four color-accented stat cards: **% Complete**
 (blue), **Backed Up** (green), **Up to Date / skipped** (gray), **Failed** (red, with

@@ -139,11 +139,13 @@ class Updater:
             ":waitloop\n"
             f'tasklist /FI "PID eq {pid}" /NH 2>nul | find /I "{exe_name}" >nul\n'
             "if %errorlevel%==0 (\n"
-            "    timeout /t 1 /nobreak >nul\n"
+            # ping, not timeout: a detached/no-console helper has no stdin, and
+            # `timeout` aborts immediately ("input redirection is not supported").
+            "    ping -n 2 127.0.0.1 >nul\n"
             "    goto waitloop\n"
             ")\n"
             'echo [update] app exited; pausing briefly >> "%LOG%"\n'
-            "timeout /t 2 /nobreak >nul\n"
+            "ping -n 3 127.0.0.1 >nul\n"
             f'echo [update] copying new files into "{app_dir}" >> "%LOG%"\n'
             f'robocopy "{extract_dir}" "{app_dir}" /E /IS /IT /R:5 /W:2 /NP /NJH /NJS >> "%LOG%" 2>&1\n'
             "set RC=%errorlevel%\n"
@@ -164,14 +166,38 @@ class Updater:
             with open(bat_path, "w") as f:
                 f.write(bat)
 
-            subprocess.Popen(
-                ["cmd.exe", "/c", bat_path],
-                cwd=tempfile.gettempdir(),
-                creationflags=subprocess.DETACHED_PROCESS,
-                close_fds=True,
-            )
-            self.logger.info("Update helper launched: %s (log: %s)", bat_path, log_path)
-            return True
+            # The helper MUST outlive this app's exit. Apps started via Explorer
+            # or a launcher often run inside a Job Object with kill-on-close, which
+            # also kills a merely-"detached" child — that silently killed the
+            # previous helper mid-wait. CREATE_BREAKAWAY_FROM_JOB escapes that job.
+            # It raises ERROR_ACCESS_DENIED when the process is NOT in a job (or the
+            # job forbids breakaway), so try it first and fall back without it.
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            CREATE_NO_WINDOW = 0x08000000
+            CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+            base_flags = CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+
+            launched = False
+            for extra in (CREATE_BREAKAWAY_FROM_JOB, 0):
+                try:
+                    subprocess.Popen(
+                        ["cmd.exe", "/c", bat_path],
+                        cwd=tempfile.gettempdir(),
+                        creationflags=base_flags | extra,
+                        close_fds=True,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    launched = True
+                    self.logger.info("Update helper launched (breakaway=%s): %s (log: %s)",
+                                     bool(extra), bat_path, log_path)
+                    break
+                except OSError as e:
+                    self.logger.warning("Helper launch with flags 0x%X failed: %s", base_flags | extra, e)
+                    continue
+
+            return launched
 
         except Exception as e:
             self.logger.error("Failed to launch update helper: %s", e, exc_info=True)

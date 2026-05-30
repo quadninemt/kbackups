@@ -163,7 +163,9 @@ The app can update itself from GitHub Releases.
 **Apply (self-replace):** Windows locks the running exe, so the update cannot overwrite it directly. Instead the updater:
 1. Extracts the ZIP to a temp dir.
 2. Writes a helper `.bat` to `%TEMP%` that: waits for the app to exit (polls `tasklist` filtered by **PID *and* image name** — robust against PID reuse) → `robocopy` the new files over the app dir with **limited retries (`/R:5 /W:2`)** → relaunches `BackupUtility.exe` → cleans up. Every step (including the robocopy exit code) is appended to `update_helper.log` in the app folder.
-3. Launches the helper detached (`DETACHED_PROCESS`, hidden) and closes the app.
+3. Launches the helper so it **outlives the app**: `CREATE_BREAKAWAY_FROM_JOB` (escapes a kill-on-close Job Object — apps started via Explorer/launchers are often in one, which otherwise kills the "detached" child) + `CREATE_NEW_PROCESS_GROUP` + `CREATE_NO_WINDOW`, with DEVNULL std handles; falls back without breakaway if the OS denies it. Then closes the app.
+
+Sleeps in the helper use `ping -n N 127.0.0.1` rather than `timeout` — a detached/no-console process has no stdin, and `timeout` aborts immediately there.
 
 **Helper hardening (learned the hard way):**
 - **Limited robocopy retries** — the default is 1,000,000 retries × 30s wait, so a locked/AV-blocked exe makes the helper hang forever. `/R:5 /W:2` caps it (~10s) and then logs the failure.
