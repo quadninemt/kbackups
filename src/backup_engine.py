@@ -223,13 +223,33 @@ class BackupEngine:
 
             source_folder_map = self._get_source_folder_map(valid_sources)
             local_files = []
+            scanned_total = 0
             for src in valid_sources:
-                for file_meta in self.file_scanner.scan([src], excludes):
+                folder_label = os.path.basename(os.path.normpath(src)) or src
+                if progress_callback:
+                    progress_callback(0, 0, f"Scanning: {src}")
+                self.logger.info("Scanning source '%s'...", src)
+
+                def _scan_progress(count, _src=src, _label=folder_label):
+                    if progress_callback:
+                        progress_callback(0, 0, f"Scanning {_label}... {scanned_total + count:,} files found")
+
+                source_files = self.file_scanner.scan([src], excludes, progress_callback=_scan_progress)
+                scanned_total += len(source_files)
+
+                folder = source_folder_map[src]
+                for file_meta in source_files:
                     meta = file_meta.copy()
-                    meta['rel_path'] = os.path.join(source_folder_map[src], file_meta['rel_path'])
+                    meta['rel_path'] = os.path.join(folder, file_meta['rel_path'])
                     local_files.append(meta)
 
+                if progress_callback:
+                    progress_callback(0, 0, f"Scanned {len(source_files):,} files in {folder_label}")
+                self.logger.info("Scanned %d files in '%s'.", len(source_files), src)
+
             local_files_map = {f['path']: f for f in local_files}
+            if progress_callback:
+                progress_callback(0, 0, f"Scan complete: {len(local_files_map):,} files total. Comparing with last backup...")
 
             if self._check_pause_stop():
                 return False
@@ -264,7 +284,9 @@ class BackupEngine:
             self.logger.info("Job '%s': %d upload(s), %d delete(s), %d skipped (up to date).",
                              job_name, len(to_upload), len(to_delete), self.stats['skipped'])
             if progress_callback:
-                progress_callback(0, total_ops, f"Found {len(to_upload)} to upload, {len(to_delete)} to delete.")
+                progress_callback(0, total_ops,
+                                  f"Scan result: {len(to_upload):,} to back up, "
+                                  f"{self.stats['skipped']:,} up to date, {len(to_delete):,} to delete.")
 
             processed = 0
             manifest_deletes = []

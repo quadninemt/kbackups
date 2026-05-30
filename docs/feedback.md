@@ -79,6 +79,15 @@ NOTE: the broken helper is baked into v1.2.0/v1.3.0 — fix requires a **one-tim
 install of v1.3.1**; auto-update works from there. If Avast blocks writes to the
 install folder, add that folder to Avast exceptions.
 
+### [DONE] No feedback during the initial file scan
+On "Backup Now" the engine scans all source files (to skip unchanged ones) before
+any progress showed — looked frozen on large OneDrive trees, and the skip outcome was
+never surfaced. Now: `FileScanner.scan` takes a progress callback and reports every
+~1000 files; the engine logs "Scanning: <folder>", live "Scanning <folder>… N files
+found", "Scanned N files in <folder>", "Scan complete: N files total", and a summary
+"Scan result: X to back up, Y up to date, Z to delete". Activity-log filter broadened
+so all of these appear. (v1.3.4)
+
 ### [DONE] Auto-update helper died on app exit (v1.3.1/1.3.2) — visible cmd window, no update
 The helper got stuck at the process-wait and was killed when the app exited (log
 stopped at "waiting for PID … to exit"; installed exe stayed v1.3.1). Root cause:

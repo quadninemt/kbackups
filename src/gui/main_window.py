@@ -896,7 +896,10 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
 
             self.after(0, lambda: self.lbl_status.config(text=msg))
             # Log to text area
-            if msg and ("Uploading" in msg or "Deleting" in msg or "Error" in msg or "failed" in msg or "Scanning" in msg or "completed" in msg):
+            if msg and any(k in msg for k in (
+                    "Scan", "Scanning", "Scanned", "Uploading", "Deleting", "Retry",
+                    "Found", "Restoring", "Creating", "snapshot", "Error", "failed",
+                    "completed", "up to date")):
                  self.after(0, lambda: self._log(msg))
 
         failures = []

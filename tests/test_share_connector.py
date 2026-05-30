@@ -204,5 +204,34 @@ class TestBackupEngineRetry(unittest.TestCase):
         self.assertEqual(bad_attempts, 1 + engine.MAX_UPLOAD_RETRIES)
 
 
+class TestFileScannerProgress(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_scan_reports_progress(self):
+        from src.file_scanner import FileScanner
+        for i in range(5):
+            with open(os.path.join(self.tmpdir, f"f{i}.txt"), "w") as f:
+                f.write("x")
+        scanner = FileScanner()
+        scanner.SCAN_PROGRESS_INTERVAL = 2  # fire often for the test
+        counts = []
+        files = scanner.scan([self.tmpdir], progress_callback=lambda c: counts.append(c))
+        self.assertEqual(len(files), 5)
+        # callback should have fired at multiples of 2 (2 and 4)
+        self.assertTrue(len(counts) >= 2)
+        self.assertTrue(all(c % 2 == 0 for c in counts))
+
+    def test_scan_without_callback_still_works(self):
+        from src.file_scanner import FileScanner
+        with open(os.path.join(self.tmpdir, "a.txt"), "w") as f:
+            f.write("x")
+        files = FileScanner().scan([self.tmpdir])
+        self.assertEqual(len(files), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

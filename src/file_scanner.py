@@ -7,11 +7,15 @@ class FileScanner:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
-    def scan(self, source_paths, excludes=None):
+    # Emit a scan-progress update roughly every this many files found.
+    SCAN_PROGRESS_INTERVAL = 1000
+
+    def scan(self, source_paths, excludes=None, progress_callback=None):
         """
         Scan directories for files, respecting exclude patterns.
         source_paths: List of directory paths to scan. (Make sure absolute paths are used)
         excludes: List of glob patterns to exclude (e.g., "*.tmp", "temp/").
+        progress_callback: optional fn(files_found_so_far) called periodically while scanning.
         Returns a list of dicts: {'path': full_path, 'rel_path': relative_path, 'size': size, 'mtime': mtime}
         """
         excludes = excludes or []
@@ -21,7 +25,7 @@ class FileScanner:
             if not os.path.exists(source_path):
                 self.logger.warning(f"Source path not found: {source_path}")
                 continue
-                
+
             source_path = os.path.abspath(source_path)
 
             for root, dirs, files in os.walk(source_path):
@@ -34,13 +38,13 @@ class FileScanner:
                     full_path = os.path.join(root, file)
                     if self._is_excluded(full_path, source_path, excludes):
                         continue
-                    
+
                     try:
                         stat = os.stat(full_path)
                         rel_path = os.path.relpath(full_path, source_path)
-                        
+
                         is_placeholder = self._is_onedrive_placeholder(full_path)
-                        
+
                         file_list.append({
                             'path': full_path,     # Absolute path
                             'rel_path': rel_path,  # Relative to source root (for mirroring structure)
@@ -48,6 +52,9 @@ class FileScanner:
                             'mtime': stat.st_mtime,
                             'is_placeholder': is_placeholder
                         })
+
+                        if progress_callback and len(file_list) % self.SCAN_PROGRESS_INTERVAL == 0:
+                            progress_callback(len(file_list))
                     except OSError as e:
                         self.logger.error(f"Error accessing file {full_path}: {e}", exc_info=True)
 
