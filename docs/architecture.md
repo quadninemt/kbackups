@@ -151,6 +151,25 @@ The backup engine auto-detects which connector to use based on the destination p
 
 `LocalConnector` supports USB drives, external hard drives, and any locally-mounted path. It preserves file metadata (timestamps) via `shutil.copy2`. All other engine behaviour (incremental sync, manifest, snapshots, pause/stop) is identical for both connector types.
 
+## Auto-Update (`src/updater.py`)
+
+The app can update itself from GitHub Releases.
+
+**Check:** `GET https://api.github.com/repos/quadninemt/kbackups/releases/latest` (no auth — public repo). Compares the release `tag_name` (e.g. `v1.2.0`) against the running `__version__` using tuple-based semver comparison. Triggered silently ~2.5s after startup (non-blocking thread) and manually via the **Check for Updates** button in Settings.
+
+**Download:** Streams the release's `.zip` asset to `%TEMP%\k_backups_update.zip` with progress reporting.
+
+**Apply (self-replace):** Windows locks the running exe, so the update cannot overwrite it directly. Instead the updater:
+1. Extracts the ZIP to a temp dir.
+2. Writes a helper `.bat` to `%TEMP%` that: waits (polls `tasklist`) for the current PID to exit → `robocopy` the new files over the app dir → relaunches `BackupUtility.exe` → deletes the temp dir and itself.
+3. Launches the helper detached (`DETACHED_PROCESS | CREATE_NO_WINDOW`) and closes the app.
+
+**Constraints:**
+- Only runs in the packaged (`sys.frozen`) app; in dev mode it tells the user to `git pull`.
+- Each GitHub Release must have a `.zip` asset containing the full dist (`BackupUtility.exe` + `_internal/`).
+- AV (Avast) may quarantine the downloaded/extracted exe; the install folder may need an AV exception.
+- `config/` and `logs/` live alongside the exe and are never touched by `robocopy` of the new dist (the ZIP contains only program files).
+
 ## Packaging
 
 - PyInstaller **folder-based** distribution (not single-file exe) — faster startup, cleaner deps.

@@ -62,6 +62,11 @@
 	- Drag-and-drop source folder support (when `tkinterdnd2` is available).
 	- Multi-folder picker support (when `tkfilebrowser` is available).
 
+- **Automatic updates:**
+	- Checks the GitHub repository for new releases on startup (silent) and via a **Check for Updates** button in Settings.
+	- If a newer version is available, prompts the user to download and install.
+	- Self-updates in place and restarts automatically; `config/` and `logs/` are preserved.
+
 - **Logging & diagnostics:**
 	- Rotating log file at `logs/backup_utility.log` (up to 3 backups, 5 MB each).
 	- Console + file logging for troubleshooting.

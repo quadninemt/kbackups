@@ -18,6 +18,7 @@ from src import __version__
 from src.config_manager import ConfigManager
 from src.scheduler_manager import SchedulerManager
 from src.backup_engine import BackupEngine
+from src.updater import Updater
 
 class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
     def __init__(self, config_manager):
@@ -63,6 +64,9 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self._init_jobs_tab()
         self._init_settings_tab()
         self._init_restore_tab()
+
+        # Auto-check for updates silently on startup (non-blocking)
+        self.after(2500, lambda: threading.Thread(target=self._auto_check_updates, daemon=True).start())
 
     def _apply_theme(self):
         """Attempts to apply the Azure Dark theme."""
@@ -677,6 +681,15 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
 
         self._refresh_schedule_jobs()
 
+        # Updates
+        frame_updates = ttk.LabelFrame(self.tab_settings, text="Application Updates")
+        frame_updates.pack(fill=tk.X, padx=10, pady=10)
+
+        self.lbl_update_status = ttk.Label(frame_updates, text=f"Version {__version__}")
+        self.lbl_update_status.pack(anchor=tk.W, padx=8, pady=(6, 2))
+
+        ttk.Button(frame_updates, text="Check for Updates", command=self._check_for_updates).pack(anchor=tk.W, padx=8, pady=(4, 8))
+
     def _init_restore_tab(self):
         frame_top = ttk.Frame(self.tab_restore)
         frame_top.pack(fill=tk.X, padx=10, pady=10)
@@ -1058,3 +1071,79 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self._on_schedule_job_selected()
         self.lbl_schedule_status.config(text=f"Schedule removed for job: {job_name}")
         messagebox.showinfo("Schedule", "Schedule removed.")
+
+    # ------------------------------------------------------------------
+    # Auto-update
+    # ------------------------------------------------------------------
+
+    def _auto_check_updates(self):
+        """Silent background update check on startup. Prompts only if an update exists."""
+        try:
+            updater = Updater()
+            result = updater.check_for_update(__version__)
+            if result:
+                latest, url = result
+                self.after(0, lambda: self._prompt_update(latest, url))
+        except Exception:
+            pass  # Never let a failed update check disrupt startup
+
+    def _check_for_updates(self):
+        """Manual update check from the Settings button (gives feedback either way)."""
+        self.lbl_update_status.config(text="Checking for updates...")
+        threading.Thread(target=self._check_for_updates_thread, daemon=True).start()
+
+    def _check_for_updates_thread(self):
+        updater = Updater()
+        result = updater.check_for_update(__version__)
+        if result:
+            latest, url = result
+            self.after(0, lambda: self.lbl_update_status.config(text=f"Update available: v{latest}"))
+            self.after(0, lambda: self._prompt_update(latest, url))
+        else:
+            self.after(0, lambda: self.lbl_update_status.config(
+                text=f"Version {__version__} — up to date."))
+            self.after(0, lambda: messagebox.showinfo(
+                "Updates", f"You are running the latest version ({__version__})."))
+
+    def _prompt_update(self, latest_version, download_url):
+        if not getattr(sys, 'frozen', False):
+            messagebox.showinfo(
+                "Update Available",
+                f"Version {latest_version} is available.\n\n"
+                "Auto-update only works in the packaged app. "
+                "Please pull the latest code in development mode."
+            )
+            return
+
+        proceed = messagebox.askyesno(
+            "Update Available",
+            f"A new version ({latest_version}) is available.\n"
+            f"You are running {__version__}.\n\n"
+            "Download and install now? The app will restart automatically.\n"
+            "(Your settings and backup history are preserved.)"
+        )
+        if proceed:
+            threading.Thread(target=self._download_and_apply, args=(download_url,), daemon=True).start()
+
+    def _download_and_apply(self, url):
+        updater = Updater()
+
+        def progress(done, total, msg):
+            self.after(0, lambda: self.lbl_update_status.config(text=msg))
+
+        zip_path = updater.download_update(url, progress_callback=progress)
+        if not zip_path:
+            self.after(0, lambda: messagebox.showerror(
+                "Update Failed", "Could not download the update. Check logs and your connection."))
+            self.after(0, lambda: self.lbl_update_status.config(text="Update download failed."))
+            return
+
+        self.after(0, lambda: self.lbl_update_status.config(text="Installing update..."))
+        if updater.apply_update(zip_path):
+            self.after(0, lambda: messagebox.showinfo(
+                "Updating", "The update is being installed. The app will now close and restart."))
+            self.after(500, self.destroy)
+        else:
+            self.after(0, lambda: messagebox.showerror(
+                "Update Failed", "Could not apply the update. Check logs."))
+            self.after(0, lambda: self.lbl_update_status.config(text="Update install failed."))

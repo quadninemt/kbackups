@@ -124,6 +124,7 @@ build.bat
 
 ## Recently Completed
 
+- Auto-update from GitHub Releases: `src/updater.py` (check/download/self-replace via helper .bat); startup auto-check + "Check for Updates" button in Settings. Each release needs a `.zip` asset with the full dist.
 - Local/USB drive support: `LocalConnector` added to `src/share_connector.py`; `BackupEngine` auto-selects connector based on destination path (drive letter = local, UNC = SMB)
 
 - Fixed `ManifestManager` path resolution (`sys.frozen` support, removed `BackupEngine._resolve_manifest_db_path` workaround)
