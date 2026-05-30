@@ -124,6 +124,7 @@ build.bat
 
 ## Recently Completed
 
+- Dashboard stat cards (replaced progress bar): % Complete / Backed Up / Up to Date / Failed (⚠ when >0), fed live from `BackupEngine.stats`
 - Hardened auto-update helper: limited robocopy retries (`/R:5 /W:2`, never hangs), PID+image-name wait, full logging to `update_helper.log`, retains old version on failure. First-gen helper (v1.2.0/v1.3.0) was buggy → needs one-time manual install of v1.3.1+
 - Scrollable Settings tab (Canvas + scrollbar + mousewheel) so NAS/Schedule/Updates sections never hide below the fold; "Check for Updates" button now reachable
 - App icon: correct Quadnine icon is embedded; stale-icon reports are Windows icon cache (clear with `ie4uinit.exe -show` + restart Explorer)

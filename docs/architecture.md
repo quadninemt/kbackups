@@ -99,7 +99,8 @@ This allows recovery of job configuration and manifest from the NAS if the local
 ### Dashboard Tab
 - Job selector combobox
 - Backup Now / Pause / Resume / Stop buttons
-- Progress bar + status label
+- Four stat cards (replacing the old progress bar): **% Complete**, **Backed Up**, **Up to Date** (skipped), **Failed** (⚠ when > 0). Fed live from `BackupEngine.stats`.
+- Status label
 - Settings file path and last-modified status
 - Scrolled activity log
 

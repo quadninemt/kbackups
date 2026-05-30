@@ -143,11 +143,27 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self.btn_stop = ttk.Button(frame_actions, text="Stop", command=self._stop_backup, state="disabled")
         self.btn_stop.pack(side=tk.LEFT, padx=5)
         
-        # Progress
-        self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(self.tab_dashboard, variable=self.progress_var, maximum=100)
-        self.progress_bar.pack(fill=tk.X, padx=20, pady=5)
-        
+        # Progress indicators (four stat cards)
+        cards = tk.Frame(self.tab_dashboard, bg="#2b2b2b")
+        cards.pack(fill=tk.X, padx=15, pady=10)
+        for i in range(4):
+            cards.columnconfigure(i, weight=1, uniform="cards")
+
+        def _make_card(col, caption, color):
+            card = tk.Frame(cards, bg="#33373b", highlightbackground="#444a50", highlightthickness=1)
+            card.grid(row=0, column=col, padx=6, sticky="nsew")
+            tk.Frame(card, bg=color, height=4).pack(fill=tk.X)
+            value = tk.Label(card, text="0", bg="#33373b", fg=color, font=("Segoe UI", 22, "bold"))
+            value.pack(pady=(12, 2))
+            tk.Label(card, text=caption, bg="#33373b", fg="#c9d1d9", font=("Segoe UI", 9)).pack(pady=(0, 12))
+            return value
+
+        self.card_pct = _make_card(0, "Complete", "#007acc")
+        self.card_done = _make_card(1, "Backed Up", "#2ea043")
+        self.card_skip = _make_card(2, "Up to Date", "#6e7681")
+        self.card_fail = _make_card(3, "Failed", "#d13438")
+        self.card_pct.config(text="0%")
+
         self.lbl_status = ttk.Label(self.tab_dashboard, text="Ready")
         self.lbl_status.pack(pady=5)
 
@@ -831,6 +847,23 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
             if current_value not in names:
                 self.combo_restore_jobs.current(0)
 
+    def _reset_cards(self):
+        self.card_pct.config(text="0%")
+        self.card_done.config(text="0")
+        self.card_skip.config(text="0")
+        self.card_fail.config(text="0", fg="#d13438")
+
+    def _update_cards(self, pct):
+        self.card_pct.config(text=f"{pct}%")
+        engine = getattr(self, 'current_engine', None)
+        stats = getattr(engine, 'stats', None) if engine else None
+        if not stats:
+            return
+        self.card_done.config(text=str(stats.get('backed_up', 0)))
+        self.card_skip.config(text=str(stats.get('skipped', 0)))
+        failed = stats.get('failed', 0)
+        self.card_fail.config(text=(f"⚠ {failed}" if failed > 0 else "0"))
+
     def _start_backup(self):
         job_name = self.combo_jobs.get()
         if not job_name:
@@ -843,8 +876,8 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self.btn_pause.config(text="Pause") # Reset text
         
         self.lbl_status.config(text="Starting backup...")
-        self.progress_var.set(0)
-        
+        self._reset_cards()
+
         # Clear log area
         self.log_area.config(state='normal')
         self.log_area.delete('1.0', tk.END)
@@ -858,10 +891,9 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         
         def progress_callback(processed, total, msg):
             # Update UI from thread safely
-            if total > 0:
-                pct = (processed / total) * 100
-                self.after(0, lambda: self.progress_var.set(pct))
-            
+            pct = int((processed / total) * 100) if total > 0 else 0
+            self.after(0, lambda: self._update_cards(pct))
+
             self.after(0, lambda: self.lbl_status.config(text=msg))
             # Log to text area
             if msg and ("Uploading" in msg or "Deleting" in msg or "Error" in msg or "failed" in msg or "Scanning" in msg or "completed" in msg):

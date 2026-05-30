@@ -25,6 +25,8 @@ class BackupEngine:
         self._pause_requested = False
         # Paths of files that still failed after all retries in the last run.
         self.last_run_failures = []
+        # Live counters for the dashboard indicators.
+        self.stats = {'backed_up': 0, 'skipped': 0, 'failed': 0}
 
     def request_stop(self):
         self._stop_requested = True
@@ -164,6 +166,7 @@ class BackupEngine:
         self._stop_requested = False
         self._pause_requested = False
         self.last_run_failures = []
+        self.stats = {'backed_up': 0, 'skipped': 0, 'failed': 0}
         self.logger.info("Starting backup job '%s'.", job_name)
 
         jobs = self.config_manager.get_jobs()
@@ -256,7 +259,10 @@ class BackupEngine:
                     to_delete.append((path, meta))
 
             total_ops = len(to_upload) + len(to_delete)
-            self.logger.info("Job '%s': %d upload(s), %d delete(s).", job_name, len(to_upload), len(to_delete))
+            # Files present locally and unchanged vs the manifest (already up to date).
+            self.stats['skipped'] = max(0, len(local_files_map) - len(to_upload))
+            self.logger.info("Job '%s': %d upload(s), %d delete(s), %d skipped (up to date).",
+                             job_name, len(to_upload), len(to_delete), self.stats['skipped'])
             if progress_callback:
                 progress_callback(0, total_ops, f"Found {len(to_upload)} to upload, {len(to_delete)} to delete.")
 
@@ -289,8 +295,10 @@ class BackupEngine:
                 if ok:
                     if payload:
                         manifest_updates.append(payload)
+                    self.stats['backed_up'] += 1
                 else:
                     failed.append(meta)
+                    self.stats['failed'] = len(failed)
                     self.logger.warning("Upload failed (%s): %s", payload, meta['path'])
                     if progress_callback:
                         progress_callback(processed, total_ops, f"Failed ({payload}): {rel_path} — will retry")
@@ -320,13 +328,16 @@ class BackupEngine:
                     if ok:
                         if payload:
                             manifest_updates.append(payload)
+                        self.stats['backed_up'] += 1
                         self.logger.info("Retry succeeded: %s", meta['path'])
                     else:
                         still_failed.append(meta)
                 failed = still_failed
+                self.stats['failed'] = len(failed)
 
             # Record persistent failures (not added to manifest, so next run retries them)
             self.last_run_failures = [m['path'] for m in failed]
+            self.stats['failed'] = len(failed)
             if failed:
                 self.logger.warning(
                     "=== Job '%s': %d file(s) FAILED after %d retries ===",

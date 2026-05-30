@@ -78,3 +78,12 @@ old version + relaunches on failure. Validated the copy/exit-code logic in a san
 NOTE: the broken helper is baked into v1.2.0/v1.3.0 — fix requires a **one-time manual
 install of v1.3.1**; auto-update works from there. If Avast blocks writes to the
 install folder, add that folder to Avast exceptions.
+
+### [DONE] Dashboard: four stat indicators instead of the progress bar
+Replaced the progress bar with four color-accented stat cards: **% Complete**
+(blue), **Backed Up** (green), **Up to Date / skipped** (gray), **Failed** (red, with
+a ⚠ glyph when > 0). Engine now tracks live counts via `BackupEngine.stats`
+(`backed_up`, `skipped`, `failed`); the GUI reads them in the progress callback and
+updates the cards live. Cards reset to 0 at the start of a run and retain final
+totals afterward (per user preference). `run_cli.py` is unaffected (callback
+signature unchanged).
