@@ -37,6 +37,17 @@ Development progress tracker. Completed phases are archived here for reference.
 - [ ] **Build & Test**: Run `build.bat` and verify `BackupUtility.exe` on a clean machine (no Python installed)
 - [ ] **Documentation**: Finalize README, clean up inline code comments
 
+## Phase 6: Architecture Improvements
+- [x] Fix `ManifestManager` path resolution — now uses `_get_default_db_path()` with `sys.frozen` support; removes `BackupEngine._resolve_manifest_db_path()` workaround
+- [x] Fix `ShareConnector.disconnect()` — now stores `_server_name` at connect time and passes it correctly to `delete_session()`
+- [x] Batch manifest writes — `batch_update_files()` / `batch_remove_files()` using `executemany` in single transactions; backup engine accumulates and flushes at end of job
+- [x] Fix progress callback operator precedence bug in `main_window.py`
+- [x] Pin versions in `requirements.txt` (`smbprotocol~=1.13`, `pyinstaller>=6.3`, etc.)
+- [x] Make `tkinterdnd2` hidden import conditional in `k_backups.spec`
+- [x] Fix `build.bat` — only pause on error
+- [x] Add job-name argument to `run_cli.py` (`python run_cli.py [job-name]`)
+- [x] Add `__version__ = "1.0.0"` to `src/__init__.py`; show in window title
+
 ---
 
 ## Open Tasks (carried to CLAUDE.md)

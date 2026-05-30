@@ -10,143 +10,112 @@ class ShareConnector:
         self.password = password
         self.logger = logging.getLogger(__name__)
         self._connected = False
+        self._server_name = None
 
     def connect(self):
-        """Establish SMB connection. Since smbclient auto-manages sessions, this validates credentials."""
+        """Establish SMB session and validate credentials."""
         try:
-            # Extract server name from UNC path
-            server_name = self.address.lstrip('\\').split('\\')[0]
-            smbclient.register_session(server_name, username=self.username, password=self.password)
+            self._server_name = self.address.lstrip('\\').split('\\')[0]
+            smbclient.register_session(self._server_name, username=self.username, password=self.password)
             self._connected = True
-            
-            # Simple check to verify connection by listing root
-            # Note: listing root of share might fail if permissions are restricted to subfolders
-            # But we need to verify connection somehow.
+
             try:
-                 smbclient.listdir(self.address)
+                smbclient.listdir(self.address)
             except Exception as e:
-                  self.logger.warning(f"Connection registered but listing failed: {e}", exc_info=True)
-                 # We still consider it connected if register_session worked, but maybe credentials are wrong
-                 # verify with a stat check on the share root
-            
-            self.logger.info(f"Connected to {server_name}")
+                self.logger.warning("Connection registered but root listing failed: %s", e)
+
+            self.logger.info("Connected to %s", self._server_name)
             return True
         except Exception as e:
-            self.logger.error(f"Failed to connect to {self.address}: {e}", exc_info=True)
+            self.logger.error("Failed to connect to %s: %s", self.address, e, exc_info=True)
             return False
 
     def disconnect(self):
-        """Close connection."""
-        if self._connected:
-            smbclient.delete_session(self.address)
-            self._connected = False
-            self.logger.info("Disconnected from NAS")
+        if self._connected and self._server_name:
+            try:
+                smbclient.delete_session(self._server_name)
+            except Exception as e:
+                self.logger.warning("Error during disconnect from %s: %s", self._server_name, e)
+            finally:
+                self._connected = False
+                self.logger.info("Disconnected from %s", self._server_name)
 
     def list_files(self, remote_path):
-        """List files in the remote directory. Returns generator of (name, size, mtime)."""
+        """List files (non-recursive) in remote_path. Yields (name, size, mtime)."""
         try:
-            full_path = self._validate_path(remote_path)
+            full_path = self._build_path(remote_path)
             for entry in smbclient.scandir(full_path):
                 if entry.is_file():
-                    yield (entry.name, entry.stat().st_size, entry.stat().st_mtime)
-                elif entry.is_dir():
-                    # For recursive listing, we might need a separate function or modify this one
-                    pass
+                    stat = entry.stat()
+                    yield (entry.name, stat.st_size, stat.st_mtime)
         except Exception as e:
-            self.logger.error(f"Error listing files in {remote_path}: {e}", exc_info=True)
+            self.logger.error("Error listing files in %s: %s", remote_path, e, exc_info=True)
             raise
 
     def upload_file(self, local_path, remote_path):
-        """Upload a file to the remote path."""
         try:
-            full_remote_path = self._validate_path(remote_path)
-            
-            # Ensure the directory exists
-            remote_dir = os.path.dirname(full_remote_path)
-            # Create directory directly using smbclient to avoid double-prefix issue via self.create_directory wrapper
+            full_remote = self._build_path(remote_path)
+            remote_dir = os.path.dirname(full_remote)
             try:
                 smbclient.makedirs(remote_dir, exist_ok=True)
             except Exception:
                 pass
 
-            
-            # Check if file exists to handle update? smbclient 'w' mode truncates, which is fine for backup update.
-
             with open(local_path, 'rb') as local_file:
-                with smbclient.open_file(full_remote_path, mode='wb') as remote_file:
+                with smbclient.open_file(full_remote, mode='wb') as remote_file:
                     shutil.copyfileobj(local_file, remote_file)
-            
-            self.logger.info(f"Uploaded {local_path} to {full_remote_path}")
+
+            self.logger.info("Uploaded %s → %s", local_path, full_remote)
             return True
         except Exception as e:
-            self.logger.error(f"Failed to upload {local_path} to {remote_path}: {e}", exc_info=True)
+            self.logger.error("Failed to upload %s to %s: %s", local_path, remote_path, e, exc_info=True)
             return False
 
     def download_file(self, remote_path, local_path):
-        """Download remote file to local path."""
         try:
-            full_remote_path = self._validate_path(remote_path)
-            
-            # Ensure local directory exists
-            local_dir = os.path.dirname(local_path)
-            if not os.path.exists(local_dir):
-                os.makedirs(local_dir)
+            full_remote = self._build_path(remote_path)
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
-            with smbclient.open_file(full_remote_path, mode='rb') as remote_file:
+            with smbclient.open_file(full_remote, mode='rb') as remote_file:
                 with open(local_path, 'wb') as local_file:
                     shutil.copyfileobj(remote_file, local_file)
-            
-            self.logger.info(f"Downloaded {full_remote_path} to {local_path}")
+
+            self.logger.info("Downloaded %s → %s", full_remote, local_path)
             return True
         except Exception as e:
-            self.logger.error(f"Failed to download {remote_path} to {local_path}: {e}", exc_info=True)
+            self.logger.error("Failed to download %s to %s: %s", remote_path, local_path, e, exc_info=True)
             return False
 
     def delete_file(self, remote_path):
-        """Delete a file from the remote path."""
         try:
-            full_path = self._validate_path(remote_path)
-            smbclient.remove(full_path)
-            self.logger.info(f"Deleted {full_path}")
+            smbclient.remove(self._build_path(remote_path))
+            self.logger.info("Deleted %s", remote_path)
             return True
         except Exception as e:
-            self.logger.error(f"Failed to delete {remote_path}: {e}", exc_info=True)
+            self.logger.error("Failed to delete %s: %s", remote_path, e, exc_info=True)
             return False
 
     def create_directory(self, remote_path):
-        """Create a directory on the remote path."""
         try:
-            full_path = self._validate_path(remote_path)
-            smbclient.makedirs(full_path, exist_ok=True)
-            self.logger.info(f"Created directory {full_path}")
+            smbclient.makedirs(self._build_path(remote_path), exist_ok=True)
+            self.logger.info("Created directory %s", remote_path)
             return True
         except Exception as e:
-            self.logger.error(f"Failed to create directory {remote_path}: {e}", exc_info=True)
+            self.logger.error("Failed to create directory %s: %s", remote_path, e, exc_info=True)
             return False
 
     def path_exists(self, remote_path):
-        """Check if a path exists."""
         try:
-            full_path = self._validate_path(remote_path)
-            # smbclient.stat raises FileNotFoundError if not exists
-            smbclient.stat(full_path)
+            smbclient.stat(self._build_path(remote_path))
             return True
         except FileNotFoundError:
             return False
         except Exception as e:
-            self.logger.error(f"Error checking path {remote_path}: {e}", exc_info=True)
+            self.logger.error("Error checking path %s: %s", remote_path, e, exc_info=True)
             return False
 
-    def _validate_path(self, path):
-        """Ensure path starts with \\server\share format."""
-        # For smbclient, input path should be full UNC path like \\server\share\file
-        # If user provided \\server\share as self.address, and path is relative, join them.
-        
-        # Strip trailing slashes
+    def _build_path(self, path):
+        """Combine NAS address with a relative destination path into a full UNC path."""
         base = self.address.rstrip('\\')
         path = path.lstrip('\\')
-        
-        if not path:
-             return base
-        return f"{base}\\{path}"
-
+        return base if not path else f"{base}\\{path}"

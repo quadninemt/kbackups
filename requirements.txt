@@ -1,5 +1,5 @@
-smbprotocol
-pyinstaller
-pytest
-tkfilebrowser
-tkinterdnd2
+smbprotocol~=1.13
+pyinstaller>=6.3,<7
+pytest>=7.4
+tkfilebrowser>=2.3
+tkinterdnd2>=0.3

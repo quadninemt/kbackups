@@ -14,6 +14,7 @@ try:
     from tkfilebrowser import askopendirnames
 except Exception:
     askopendirnames = None
+from src import __version__
 from src.config_manager import ConfigManager
 from src.scheduler_manager import SchedulerManager
 from src.backup_engine import BackupEngine
@@ -24,7 +25,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self.config_manager = config_manager
         self.scheduler_manager = SchedulerManager()
         
-        self.title("k_backups - Backup Utility")
+        self.title(f"k_backups v{__version__} - Backup Utility")
         self.geometry("800x600")
         
         # Set window icon if available
@@ -828,7 +829,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
             
             self.after(0, lambda: self.lbl_status.config(text=msg))
             # Log to text area
-            if msg and "Uploading" in msg or "Deleting" in msg or "Error" in msg or "failed" in msg or "Scanning" in msg or "completed" in msg:
+            if msg and ("Uploading" in msg or "Deleting" in msg or "Error" in msg or "failed" in msg or "Scanning" in msg or "completed" in msg):
                  self.after(0, lambda: self._log(msg))
 
         try:

@@ -149,9 +149,18 @@ This allows recovery of job configuration and manifest from the NAS if the local
 
 ---
 
+## Manifest Batch Write Strategy
+
+Manifest updates are accumulated in memory during a backup run and flushed in two batch transactions at the end (one for deletes, one for inserts/updates via `executemany`). This avoids per-file connection open/close overhead on large jobs.
+
+Trade-off: if a job is killed mid-run, the manifest won't reflect partial progress. On the next run, files uploaded during the killed run will be re-uploaded. This is acceptable for a personal backup tool.
+
+---
+
 ## Known Limitations / Open Design Items
 
 - Credentials stored plain text in `config/settings.json` — acceptable for local personal tool, noted in README.
 - Exclude patterns are supported by engine and config schema but not yet exposed in the Add/Edit Job GUI.
 - Restore is job-level full restore only (no selective file restore).
 - No automatic unattended backup execution — reminders only, by design (NAS may be off).
+- `ShareConnector.list_files()` is non-recursive — sufficient for snapshot cleanup (snapshots are top-level in the job folder) but not for general directory walking.

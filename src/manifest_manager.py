@@ -1,21 +1,30 @@
 import sqlite3
 import os
+import sys
 import logging
 
 class ManifestManager:
     DB_NAME = "manifest.db"
 
-    def __init__(self, config_dir="config"):
-        self.db_path = os.path.join(config_dir, self.DB_NAME)
+    def __init__(self, db_path=None):
+        self.db_path = db_path or self._get_default_db_path()
         self.logger = logging.getLogger(__name__)
         self._init_db()
 
+    @staticmethod
+    def _get_default_db_path():
+        if getattr(sys, 'frozen', False):
+            app_root = os.path.dirname(sys.executable)
+        else:
+            # src/manifest_manager.py → go up two levels to project root
+            app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.abspath(os.path.join(app_root, "config", ManifestManager.DB_NAME))
+
     def _init_db(self):
-        """Initialize the database schema."""
         try:
+            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
             with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
+                conn.execute("""
                     CREATE TABLE IF NOT EXISTS files (
                         job_name TEXT,
                         file_path TEXT,
@@ -27,83 +36,91 @@ class ManifestManager:
                 """)
                 conn.commit()
         except Exception as e:
-            self.logger.error(f"Failed to initialize manifest DB: {e}", exc_info=True)
+            self.logger.error("Failed to initialize manifest DB: %s", e, exc_info=True)
 
     def get_file_state(self, job_name, file_path):
-        """Get the stored state of a file."""
         try:
             with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
+                cursor = conn.execute(
                     "SELECT size, mtime FROM files WHERE job_name=? AND file_path=?",
                     (job_name, file_path)
                 )
                 row = cursor.fetchone()
-                if row:
-                    return {'size': row[0], 'mtime': row[1]}
-                return None
+                return {'size': row[0], 'mtime': row[1]} if row else None
         except Exception as e:
-            self.logger.error(f"Error getting file state for {file_path}: {e}", exc_info=True)
+            self.logger.error("Error getting file state for %s: %s", file_path, e, exc_info=True)
             return None
 
     def update_file_state(self, job_name, file_path, rel_path, size, mtime):
-        """Update or insert file state."""
         try:
             with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO files (job_name, file_path, rel_path, size, mtime)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
+                conn.execute(
+                    "INSERT OR REPLACE INTO files (job_name, file_path, rel_path, size, mtime) VALUES (?, ?, ?, ?, ?)",
                     (job_name, file_path, rel_path, size, mtime)
                 )
                 conn.commit()
         except Exception as e:
-            self.logger.error(f"Error updating file state for {file_path}: {e}", exc_info=True)
+            self.logger.error("Error updating file state for %s: %s", file_path, e, exc_info=True)
 
-    def remove_file_state(self, job_name, file_path):
-        """Remove a file from the manifest."""
+    def batch_update_files(self, job_name, updates):
+        """Bulk-insert or replace file states. updates: list of (file_path, rel_path, size, mtime)."""
+        if not updates:
+            return
         try:
             with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
+                conn.executemany(
+                    "INSERT OR REPLACE INTO files (job_name, file_path, rel_path, size, mtime) VALUES (?, ?, ?, ?, ?)",
+                    [(job_name, fp, rp, sz, mt) for fp, rp, sz, mt in updates]
+                )
+                conn.commit()
+            self.logger.info("Batch updated %d manifest entries for job '%s'.", len(updates), job_name)
+        except Exception as e:
+            self.logger.error("Error batch-updating manifest for job '%s': %s", job_name, e, exc_info=True)
+
+    def batch_remove_files(self, job_name, file_paths):
+        """Bulk-delete file states. file_paths: list of absolute file path strings."""
+        if not file_paths:
+            return
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.executemany(
+                    "DELETE FROM files WHERE job_name=? AND file_path=?",
+                    [(job_name, fp) for fp in file_paths]
+                )
+                conn.commit()
+            self.logger.info("Batch removed %d manifest entries for job '%s'.", len(file_paths), job_name)
+        except Exception as e:
+            self.logger.error("Error batch-removing manifest for job '%s': %s", job_name, e, exc_info=True)
+
+    def remove_file_state(self, job_name, file_path):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
                     "DELETE FROM files WHERE job_name=? AND file_path=?",
                     (job_name, file_path)
                 )
                 conn.commit()
         except Exception as e:
-            self.logger.error(f"Error removing file state for {file_path}: {e}", exc_info=True)
+            self.logger.error("Error removing file state for %s: %s", file_path, e, exc_info=True)
 
     def get_job_files(self, job_name):
-        """Get all files associated with a job. Returns dict {path: {metadata}}."""
+        """Return all manifest entries for a job as {file_path: {rel_path, size, mtime}}."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-                cursor.execute(
+                rows = conn.execute(
                     "SELECT file_path, rel_path, size, mtime FROM files WHERE job_name=?",
                     (job_name,)
-                )
-                rows = cursor.fetchall()
-                result = {}
-                for row in rows:
-                    result[row['file_path']] = {
-                        'rel_path': row['rel_path'],
-                        'size': row['size'],
-                        'mtime': row['mtime']
-                    }
-                return result
+                ).fetchall()
+                return {row['file_path']: {'rel_path': row['rel_path'], 'size': row['size'], 'mtime': row['mtime']} for row in rows}
         except Exception as e:
-            self.logger.error(f"Error getting job files for {job_name}: {e}", exc_info=True)
+            self.logger.error("Error getting job files for '%s': %s", job_name, e, exc_info=True)
             return {}
 
     def clear_job_manifest(self, job_name):
-        """Clear all entries for a specific job (e.g., for full re-scan)."""
         try:
             with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM files WHERE job_name=?", (job_name,))
+                conn.execute("DELETE FROM files WHERE job_name=?", (job_name,))
                 conn.commit()
         except Exception as e:
-            self.logger.error(f"Error clearing manifest for {job_name}: {e}", exc_info=True)
+            self.logger.error("Error clearing manifest for '%s': %s", job_name, e, exc_info=True)

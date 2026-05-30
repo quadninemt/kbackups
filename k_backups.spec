@@ -7,12 +7,19 @@ block_cipher = None
 project_root = os.path.abspath(os.getcwd())
 src_hiddenimports = collect_submodules('src')
 
+# tkinterdnd2 is optional — only include if installed in the current environment
+try:
+    import tkinterdnd2
+    optional_imports = ['tkinterdnd2']
+except ImportError:
+    optional_imports = []
+
 a = Analysis(
     ['main.py'],
     pathex=[project_root],
     binaries=[],
     datas=[('assets', 'assets')],
-    hiddenimports=['smbclient', 'tkinter', 'sqlite3', 'configparser', 'tkinterdnd2'] + src_hiddenimports,
+    hiddenimports=['smbclient', 'tkinter', 'sqlite3', 'configparser'] + optional_imports + src_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

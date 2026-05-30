@@ -2,8 +2,12 @@
 if exist "venv" (
     call venv\Scripts\activate
 ) else (
-    echo "Warning: venv not found. Ensure PyInstaller is installed globally."
+    echo Warning: venv not found. Ensure PyInstaller is installed globally.
 )
 
 pyinstaller k_backups.spec --clean --noconfirm
-pause
+if %errorlevel% neq 0 (
+    echo.
+    echo Build FAILED.
+    pause
+)

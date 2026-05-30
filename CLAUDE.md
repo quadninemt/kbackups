@@ -122,6 +122,18 @@ build.bat
 - [ ] **Documentation**: Finalize README, clean up inline code comments
 - [ ] **GUI — Exclude Patterns**: Expose exclude pattern editing in Add/Edit Job dialogs (engine already supports it via `exclude_patterns` in job config)
 
+## Recently Completed
+
+- Fixed `ManifestManager` path resolution (`sys.frozen` support, removed `BackupEngine._resolve_manifest_db_path` workaround)
+- Fixed `ShareConnector.disconnect()` server name bug
+- Batch manifest writes via `executemany` — single transaction per job instead of per-file
+- Fixed progress callback operator precedence in `main_window.py`
+- Pinned versions in `requirements.txt`
+- Conditional `tkinterdnd2` in `k_backups.spec`
+- `build.bat` only pauses on error
+- `run_cli.py` accepts optional job-name argument
+- Added `__version__ = "1.0.0"` shown in window title
+
 ---
 
 ## Concurrency: 1 MESSAGE = ALL RELATED OPERATIONS
