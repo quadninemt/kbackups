@@ -601,8 +601,30 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         ttk.Button(frame_actions, text="Cancel", command=top.destroy).pack(side=tk.RIGHT, padx=(0, 10))
 
     def _init_settings_tab(self):
+        # Scrollable container so the tab never hides controls below the fold
+        container = ttk.Frame(self.tab_settings)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(container, borderwidth=0, highlightthickness=0, bg="#2b2b2b")
+        vsb = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        inner = ttk.Frame(canvas)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(inner_id, width=e.width))
+
+        # Mousewheel scrolls only while the pointer is over this tab
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
         # NAS Settings
-        frame_nas = ttk.LabelFrame(self.tab_settings, text="NAS Connection")
+        frame_nas = ttk.LabelFrame(inner, text="NAS Connection")
         frame_nas.pack(fill=tk.X, padx=10, pady=10)
         
         # Address
@@ -624,7 +646,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         ttk.Button(frame_nas, text="Save Settings", command=self._save_nas_settings).grid(row=3, column=1, pady=10)
 
         # Scheduler (per-job)
-        frame_scheduler = ttk.LabelFrame(self.tab_settings, text="Job Reminder Schedule")
+        frame_scheduler = ttk.LabelFrame(inner, text="Job Reminder Schedule")
         frame_scheduler.pack(fill=tk.X, padx=10, pady=10)
 
         ttk.Label(frame_scheduler, text="Job:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
@@ -682,7 +704,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self._refresh_schedule_jobs()
 
         # Updates
-        frame_updates = ttk.LabelFrame(self.tab_settings, text="Application Updates")
+        frame_updates = ttk.LabelFrame(inner, text="Application Updates")
         frame_updates.pack(fill=tk.X, padx=10, pady=10)
 
         self.lbl_update_status = ttk.Label(frame_updates, text=f"Version {__version__}")
