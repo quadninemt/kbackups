@@ -117,18 +117,46 @@ class Updater:
             self.logger.error("Failed to extract update ZIP: %s", e, exc_info=True)
             return False
 
+        exe_name = os.path.basename(app_exe)
         bat_path = os.path.join(tempfile.gettempdir(), "k_backups_apply_update.bat")
+        log_path = os.path.join(app_dir, "update_helper.log")
+
+        # Robust helper:
+        #  - waits for the running app (by PID *and* image name) to fully exit
+        #  - copies with LIMITED robocopy retries (/R:5 /W:2) so it can never
+        #    hang forever if the exe is briefly locked or AV-blocked
+        #  - logs every step (incl. robocopy exit code) to update_helper.log
+        #  - on copy failure, retains the old version and still relaunches so
+        #    the user is never left without a working app
+        # NOTE: every redirection has a SPACE before > / >> on purpose. A token
+        # like "%RC%>>" where RC is a digit would otherwise be parsed by cmd as a
+        # stream-handle redirection (e.g. "1>>"), silently eating the value.
         bat = (
             "@echo off\n"
+            f'set "LOG={log_path}"\n'
+            'echo [update] started %DATE% %TIME% > "%LOG%"\n'
+            f'echo [update] waiting for {exe_name} (PID {pid}) to exit >> "%LOG%"\n'
             ":waitloop\n"
-            f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul\n'
-            "if not errorlevel 1 (\n"
+            f'tasklist /FI "PID eq {pid}" /NH 2>nul | find /I "{exe_name}" >nul\n'
+            "if %errorlevel%==0 (\n"
             "    timeout /t 1 /nobreak >nul\n"
             "    goto waitloop\n"
             ")\n"
-            f'robocopy "{extract_dir}" "{app_dir}" /E /IS /IT /NP /NJH /NJS\n'
+            'echo [update] app exited; pausing briefly >> "%LOG%"\n'
+            "timeout /t 2 /nobreak >nul\n"
+            f'echo [update] copying new files into "{app_dir}" >> "%LOG%"\n'
+            f'robocopy "{extract_dir}" "{app_dir}" /E /IS /IT /R:5 /W:2 /NP /NJH /NJS >> "%LOG%" 2>&1\n'
+            "set RC=%errorlevel%\n"
+            'echo [update] robocopy exit code %RC% >> "%LOG%"\n'
+            "if %RC% geq 8 (\n"
+            '    echo [update] COPY FAILED - old version retained. Check antivirus ^(Avast^) is not blocking writes to this folder. >> "%LOG%"\n'
+            ") else (\n"
+            '    echo [update] copy succeeded - update applied >> "%LOG%"\n'
+            ")\n"
+            'echo [update] relaunching app >> "%LOG%"\n'
             f'start "" "{app_exe}"\n'
             f'rmdir /S /Q "{extract_dir}" >nul 2>&1\n'
+            'echo [update] done %DATE% %TIME% >> "%LOG%"\n'
             'del "%~f0"\n'
         )
 
@@ -138,9 +166,11 @@ class Updater:
 
             subprocess.Popen(
                 ["cmd.exe", "/c", bat_path],
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
+                cwd=tempfile.gettempdir(),
+                creationflags=subprocess.DETACHED_PROCESS,
+                close_fds=True,
             )
-            self.logger.info("Update helper launched: %s", bat_path)
+            self.logger.info("Update helper launched: %s (log: %s)", bat_path, log_path)
             return True
 
         except Exception as e:

@@ -161,8 +161,14 @@ The app can update itself from GitHub Releases.
 
 **Apply (self-replace):** Windows locks the running exe, so the update cannot overwrite it directly. Instead the updater:
 1. Extracts the ZIP to a temp dir.
-2. Writes a helper `.bat` to `%TEMP%` that: waits (polls `tasklist`) for the current PID to exit → `robocopy` the new files over the app dir → relaunches `BackupUtility.exe` → deletes the temp dir and itself.
-3. Launches the helper detached (`DETACHED_PROCESS | CREATE_NO_WINDOW`) and closes the app.
+2. Writes a helper `.bat` to `%TEMP%` that: waits for the app to exit (polls `tasklist` filtered by **PID *and* image name** — robust against PID reuse) → `robocopy` the new files over the app dir with **limited retries (`/R:5 /W:2`)** → relaunches `BackupUtility.exe` → cleans up. Every step (including the robocopy exit code) is appended to `update_helper.log` in the app folder.
+3. Launches the helper detached (`DETACHED_PROCESS`, hidden) and closes the app.
+
+**Helper hardening (learned the hard way):**
+- **Limited robocopy retries** — the default is 1,000,000 retries × 30s wait, so a locked/AV-blocked exe makes the helper hang forever. `/R:5 /W:2` caps it (~10s) and then logs the failure.
+- **Space before every `>`/`>>`** — a token like `%RC%>>file` where `RC` is a digit is parsed by cmd as a stream-handle redirect (`1>>`), silently eating the value. All redirections are spaced.
+- **On copy failure** the old version is retained and the app is still relaunched, so the user is never left without a working app; `update_helper.log` records why (commonly Avast blocking writes to the install folder).
+- The buggy first-generation helper shipped in v1.2.0/v1.3.0; fixing it required a **one-time manual install** of v1.3.1+, after which auto-update works.
 
 **Constraints:**
 - Only runs in the packaged (`sys.frozen`) app; in dev mode it tells the user to `git pull`.

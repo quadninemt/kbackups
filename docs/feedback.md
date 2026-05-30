@@ -65,3 +65,16 @@ will detect and offer it on next launch.
 The button existed but sat below the fold on the overlong Settings tab (same root
 cause as the settings-length item). It's now reachable thanks to the scrollable
 Settings tab.
+
+### [DONE] Auto-update ran but didn't actually update (v1.2/v1.3.0)
+Diagnosed from leftover artifacts (helper .bat + extract dirs persisted; installed
+exe stayed at the v1.2 size). Root causes in the first-gen helper:
+(1) `robocopy` used default retries (1,000,000 × 30s) so a locked/AV-blocked exe
+made it hang forever and never replace the file; (2) the PID-wait matched the raw
+PID number anywhere in `tasklist` output (fragile on PID reuse); (3) no logging, so
+failures were invisible. Rewrote the helper: waits on PID **and** image name,
+`robocopy /R:5 /W:2`, full logging to `update_helper.log` in the app folder, retains
+old version + relaunches on failure. Validated the copy/exit-code logic in a sandbox.
+NOTE: the broken helper is baked into v1.2.0/v1.3.0 — fix requires a **one-time manual
+install of v1.3.1**; auto-update works from there. If Avast blocks writes to the
+install folder, add that folder to Avast exceptions.
