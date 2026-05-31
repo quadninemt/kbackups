@@ -234,6 +234,30 @@ class TestFileScannerProgress(unittest.TestCase):
         files = FileScanner().scan([self.tmpdir])
         self.assertEqual(len(files), 1)
 
+    def test_exclude_git_folder_and_url_files(self):
+        from src.file_scanner import FileScanner
+        # normal file (keep)
+        open(os.path.join(self.tmpdir, "keep.txt"), "w").close()
+        # .url file (exclude via *.url)
+        open(os.path.join(self.tmpdir, "shortcut.url"), "w").close()
+        # .git folder with a file inside (exclude whole folder via .git)
+        gitdir = os.path.join(self.tmpdir, ".git")
+        os.makedirs(gitdir)
+        open(os.path.join(gitdir, "config"), "w").close()
+        # nested .git deeper in the tree
+        nested = os.path.join(self.tmpdir, "proj", ".git")
+        os.makedirs(nested)
+        open(os.path.join(nested, "HEAD"), "w").close()
+        open(os.path.join(self.tmpdir, "proj", "main.py"), "w").close()
+
+        files = FileScanner().scan([self.tmpdir], excludes=[".git", "*.url"])
+        names = sorted(os.path.basename(f['path']) for f in files)
+        self.assertIn("keep.txt", names)
+        self.assertIn("main.py", names)
+        self.assertNotIn("shortcut.url", names)
+        self.assertNotIn("config", names)   # inside top-level .git
+        self.assertNotIn("HEAD", names)     # inside nested .git
+
 
 if __name__ == '__main__':
     unittest.main()

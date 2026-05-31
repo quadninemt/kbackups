@@ -138,3 +138,11 @@ stores `{path, error}` dicts (last failure reason tracked through the retry loop
 GUI remembers the run's failures in `self.last_failures` so the dialog works after the
 run ends. Clicking with no failures shows a friendly "no files failed" message. (v1.3.6)
 
+### [DONE] Exclude patterns editable in Add/Edit Job dialogs
+The engine already supported `exclude_patterns` (fnmatch on each path's basename, and
+os.walk dir-filtering), so `.git` excludes any folder named .git anywhere, and `*.url`
+excludes any .url file. Added a GUI editor (listbox + entry + Add/Remove, Enter-to-add)
+to both Add Job and Edit Job dialogs, factored into `_build_excludes_editor`. New jobs
+start empty (per preference); Edit pre-loads existing patterns. Added a scanner test
+verifying `.git` folders (top-level and nested) and `*.url` files are excluded while
+other files are kept. 19 tests pass. (v1.3.8)

@@ -339,6 +339,48 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
                 job.get("destination_path")
             ))
 
+    def _build_excludes_editor(self, parent, initial_patterns=None):
+        """Build an exclude-patterns editor (listbox + entry + Add/Remove).
+        Returns the listbox so callers can read patterns via get(0, tk.END)."""
+        ttk.Label(parent, text="Exclude Patterns (folder name or file glob):").pack(anchor=tk.W, pady=(0, 5))
+
+        frame = ttk.Frame(parent)
+        frame.pack(fill=tk.X, pady=(0, 5))
+        box = tk.Listbox(frame, height=4, bg="#3c3c3c", fg="#ffffff", selectbackground="#007acc", borderwidth=0)
+        box.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        sb = ttk.Scrollbar(frame, orient="vertical", command=box.yview)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        box.config(yscrollcommand=sb.set)
+        for p in (initial_patterns or []):
+            box.insert(tk.END, p)
+
+        entry_frame = ttk.Frame(parent)
+        entry_frame.pack(fill=tk.X, pady=(0, 3))
+        ent = ttk.Entry(entry_frame)
+        ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+
+        def add_pattern():
+            val = ent.get().strip()
+            if val and val not in box.get(0, tk.END):
+                box.insert(tk.END, val)
+            ent.delete(0, tk.END)
+
+        def remove_pattern():
+            sel = box.curselection()
+            if sel:
+                box.delete(sel[0])
+
+        ent.bind("<Return>", lambda e: add_pattern())
+        ttk.Button(entry_frame, text="Add", command=add_pattern).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(entry_frame, text="Remove Selected", command=remove_pattern).pack(side=tk.LEFT)
+
+        ttk.Label(
+            parent,
+            text="Tip: a bare name (.git) excludes any folder/file with that name; a glob (*.url) excludes matching files.",
+            font=("Segoe UI", 8)
+        ).pack(anchor=tk.W, pady=(0, 12))
+        return box
+
     def _add_job(self):
         top = tk.Toplevel(self)
         top.title("Add New Job")
@@ -405,15 +447,18 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
                 font=("Segoe UI", 8)
             ).pack(anchor=tk.W, pady=(0, 12))
 
+        # Exclude Patterns
+        list_excludes = self._build_excludes_editor(main_frame)
+
         # Destination Folder
         ttk.Label(main_frame, text="Destination Folder (on NAS):").pack(anchor=tk.W, pady=(0, 5))
-        
+
         frame_dest = ttk.Frame(main_frame)
         frame_dest.pack(fill=tk.X, pady=(0, 5))
-        
+
         ent_dest = ttk.Entry(frame_dest)
         ent_dest.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        
+
         def browse_dest():
             # Note: Browsing network locations might require user to select mapped drive or Network in dialog
             d = filedialog.askdirectory(title="Select Destination Folder", parent=top)
@@ -453,7 +498,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
                 "name": name,
                 "source_paths": sources,
                 "destination_path": dest,
-                "exclude_patterns": [],
+                "exclude_patterns": list(list_excludes.get(0, tk.END)),
                 "schedule": self._default_job_schedule(name)
             }
             try:
@@ -563,6 +608,9 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
                 font=("Segoe UI", 8)
             ).pack(anchor=tk.W, pady=(0, 12))
 
+        # Exclude Patterns (pre-loaded from the job)
+        list_excludes = self._build_excludes_editor(main_frame, existing_job.get("exclude_patterns", []))
+
         ttk.Label(main_frame, text="Destination Folder (on NAS):").pack(anchor=tk.W, pady=(0, 5))
 
         frame_dest = ttk.Frame(main_frame)
@@ -609,7 +657,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
                 "name": name,
                 "source_paths": sources,
                 "destination_path": dest,
-                "exclude_patterns": existing_job.get("exclude_patterns", [])
+                "exclude_patterns": list(list_excludes.get(0, tk.END))
             })
 
             try:
