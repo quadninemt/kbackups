@@ -158,3 +158,11 @@ Log stays below and **keeps expanding** to fill remaining space (per preference,
 keeps ≥150px). Verified the GUI builds and survives small-window resizes; 19 tests
 pass. (v1.3.9)
 
+### [DONE] Add/Edit Job dialogs also scrollable (follow-up)
+The Add Job and Edit Job dialogs were fixed 600×600 Toplevels and could overflow on
+small screens (worse now with the exclude editor). Made both scrollable: a fixed
+Save/Cancel bar at the bottom (always reachable), the body wrapped in
+`_make_scrollable`, and the window height capped to the screen
+(`min(600, screen-80)`) with a sensible `minsize`. Verified both dialogs open with a
+scrollable canvas and the Edit dialog pre-loads sources + exclude patterns. (v1.3.10)
+

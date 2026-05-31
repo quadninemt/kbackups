@@ -440,18 +440,25 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
     def _add_job(self):
         top = tk.Toplevel(self)
         top.title("Add New Job")
-        top.geometry("600x600")
+        height = min(600, top.winfo_screenheight() - 80)
+        top.geometry(f"600x{height}")
+        top.minsize(420, 320)
         top.transient(self)
         top.grab_set()
         top.lift()
         top.focus_force()
-        
+
         # Apply dark background
         bg_color = "#2b2b2b"
         top.configure(bg=bg_color)
-        
-        # Main container with padding
-        main_frame = ttk.Frame(top, padding="20")
+
+        # Fixed Save/Cancel bar at the bottom (always reachable)
+        frame_actions = ttk.Frame(top)
+        frame_actions.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=10)
+
+        # Scrollable body so the dialog is usable on small screens
+        body = self._make_scrollable(top)
+        main_frame = ttk.Frame(body, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Job Name
@@ -529,10 +536,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         
         ttk.Label(main_frame, text="Note: For NAS, use UNC path if not mapped (e.g. \\\\Server\\Share\\Folder)", font=("Segoe UI", 8)).pack(anchor=tk.W, pady=(0, 20))
 
-        # Save / Cancel
-        frame_actions = ttk.Frame(main_frame)
-        frame_actions.pack(fill=tk.X, side=tk.BOTTOM)
-        
+        # Save / Cancel (buttons added to the fixed bottom bar created above)
         def save():
             name = ent_name.get().strip()
             sources = list(list_sources.get(0, tk.END))
@@ -602,7 +606,9 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
 
         top = tk.Toplevel(self)
         top.title("Edit Job")
-        top.geometry("600x600")
+        height = min(600, top.winfo_screenheight() - 80)
+        top.geometry(f"600x{height}")
+        top.minsize(420, 320)
         top.transient(self)
         top.grab_set()
         top.lift()
@@ -611,7 +617,13 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         bg_color = "#2b2b2b"
         top.configure(bg=bg_color)
 
-        main_frame = ttk.Frame(top, padding="20")
+        # Fixed Save/Cancel bar at the bottom (always reachable)
+        frame_actions = ttk.Frame(top)
+        frame_actions.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=10)
+
+        # Scrollable body so the dialog is usable on small screens
+        body = self._make_scrollable(top)
+        main_frame = ttk.Frame(body, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         ttk.Label(main_frame, text="Job Name:").pack(anchor=tk.W, pady=(0, 5))
@@ -688,9 +700,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
 
         ttk.Label(main_frame, text="Note: For NAS, use UNC path if not mapped (e.g. \\\\Server\\Share\\Folder)", font=("Segoe UI", 8)).pack(anchor=tk.W, pady=(0, 20))
 
-        frame_actions = ttk.Frame(main_frame)
-        frame_actions.pack(fill=tk.X, side=tk.BOTTOM)
-
+        # Buttons added to the fixed bottom bar created above
         def save_changes():
             name = ent_name.get().strip()
             sources = list(list_sources.get(0, tk.END))
