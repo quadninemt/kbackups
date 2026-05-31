@@ -123,6 +123,7 @@ build.bat
 
 ## Recently Completed
 
+- Scrollable tabs for small screens: `_make_scrollable` helper (Canvas + smart wheel that yields to inner Text/Listbox) on Restore; Dashboard split = controls scroll, Activity Log stays expanding (≥150px). Settings already scrollable
 - Exclude patterns editable in Add/Edit Job dialogs (`_build_excludes_editor`): listbox + Add/Remove; engine already matched via fnmatch on basename, so `.git` excludes that folder anywhere and `*.url` excludes those files
 - Failed-card dialog now consistent with the count: engine maintains failures live in a thread-safe `_failures` map (exposed via `last_run_failures` property); GUI dialog reads the live engine mid-run, falls back to `last_failures` after. Fixed "card shows 4k but dialog says none"
 - Failed card is yellow (`#f1c40f`) and clickable → dialog listing failed files + error messages; `last_run_failures` now stores `{path, error}` dicts, GUI keeps `self.last_failures`

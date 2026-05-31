@@ -123,20 +123,76 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
             
             self.configure(bg=bg_color)
 
+    def _bind_mousewheel(self, canvas):
+        """Scroll `canvas` with the wheel while hovering, but let a Text/Listbox
+        under the pointer scroll itself (no nested-scroll fighting)."""
+        def _on_wheel(event):
+            node = self.winfo_containing(event.x_root, event.y_root)
+            while node is not None and node is not canvas:
+                if isinstance(node, (tk.Text, tk.Listbox)):
+                    return
+                node = getattr(node, "master", None)
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_wheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+    def _make_scrollable(self, parent):
+        """Wrap a tab in a vertically scrollable canvas; returns the inner frame
+        to place content into (content fills width, scrolls when taller than view)."""
+        canvas = tk.Canvas(parent, bg="#2b2b2b", highlightthickness=0, borderwidth=0)
+        vsb = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        inner = ttk.Frame(canvas)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(inner_id, width=e.width))
+        self._bind_mousewheel(canvas)
+        return inner
+
     def _init_dashboard_tab(self):
+        # Controls go in a scrollable region (usable on small screens); the
+        # Activity Log stays below and expands to fill the remaining space.
+        controls_holder = ttk.Frame(self.tab_dashboard)
+        controls_holder.pack(side=tk.TOP, fill=tk.X)
+
+        controls_canvas = tk.Canvas(controls_holder, bg="#2b2b2b", highlightthickness=0, borderwidth=0)
+        controls_vsb = ttk.Scrollbar(controls_holder, orient="vertical", command=controls_canvas.yview)
+        controls_vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        controls_canvas.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        controls_canvas.configure(yscrollcommand=controls_vsb.set)
+
+        inner = ttk.Frame(controls_canvas)
+        inner_id = controls_canvas.create_window((0, 0), window=inner, anchor="nw")
+        controls_canvas.bind("<Configure>", lambda e: controls_canvas.itemconfigure(inner_id, width=e.width))
+
+        MIN_LOG_PX = 150  # keep at least this much room for the expanding log
+
+        def _resize_controls(event=None):
+            content_h = inner.winfo_reqheight()
+            avail = self.tab_dashboard.winfo_height()
+            cap = max(80, avail - MIN_LOG_PX)
+            controls_canvas.configure(height=min(content_h, cap))
+            controls_canvas.configure(scrollregion=controls_canvas.bbox("all"))
+
+        inner.bind("<Configure>", _resize_controls)
+        self.tab_dashboard.bind("<Configure>", _resize_controls)
+        self._bind_mousewheel(controls_canvas)
+
         # Job Selection
-        frame_top = ttk.Frame(self.tab_dashboard)
+        frame_top = ttk.Frame(inner)
         frame_top.pack(fill=tk.X, padx=10, pady=10)
-        
+
         ttk.Label(frame_top, text="Select Job:").pack(side=tk.LEFT)
         self.combo_jobs = ttk.Combobox(frame_top, state="readonly")
         self.combo_jobs.pack(side=tk.LEFT, padx=5)
         self._refresh_jobs_list()
-        
+
         # Actions
-        frame_actions = ttk.Frame(self.tab_dashboard)
+        frame_actions = ttk.Frame(inner)
         frame_actions.pack(pady=10)
-        
+
         self.btn_backup = ttk.Button(frame_actions, text="Backup Now", command=self._start_backup)
         self.btn_backup.pack(side=tk.LEFT, padx=5)
 
@@ -145,9 +201,9 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
 
         self.btn_stop = ttk.Button(frame_actions, text="Stop", command=self._stop_backup, state="disabled")
         self.btn_stop.pack(side=tk.LEFT, padx=5)
-        
+
         # Progress indicators (five stat cards)
-        cards = tk.Frame(self.tab_dashboard, bg="#2b2b2b")
+        cards = tk.Frame(inner, bg="#2b2b2b")
         cards.pack(fill=tk.X, padx=15, pady=10)
         for i in range(5):
             cards.columnconfigure(i, weight=1, uniform="cards")
@@ -175,11 +231,11 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self.card_fail = _make_card(4, "Failed", FAIL_COLOR, on_click=self._show_failures)
         self.card_pct.config(text="0%")
 
-        self.lbl_status = ttk.Label(self.tab_dashboard, text="Ready")
+        self.lbl_status = ttk.Label(inner, text="Ready")
         self.lbl_status.pack(pady=5)
 
         # Settings file status
-        frame_settings_status = ttk.LabelFrame(self.tab_dashboard, text="Settings File")
+        frame_settings_status = ttk.LabelFrame(inner, text="Settings File")
         frame_settings_status.pack(fill=tk.X, padx=10, pady=(0, 10))
 
         self.lbl_settings_path = ttk.Label(frame_settings_status, text="")
@@ -190,11 +246,11 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
 
         self._refresh_settings_file_status()
 
-        # Log Area
+        # Log Area — stays outside the scroll region and expands to fill the rest
         frame_logs = ttk.LabelFrame(self.tab_dashboard, text="Activity Log")
-        frame_logs.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        frame_logs.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self.log_area = scrolledtext.ScrolledText(frame_logs, height=10, state='disabled', bg="#1e1e1e", fg="#d4d4d4", font=("Consolas", 9))
+        self.log_area = scrolledtext.ScrolledText(frame_logs, height=8, state='disabled', bg="#1e1e1e", fg="#d4d4d4", font=("Consolas", 9))
         self.log_area.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
     def _log(self, message):
@@ -788,38 +844,40 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         ttk.Button(frame_updates, text="Check for Updates", command=self._check_for_updates).pack(anchor=tk.W, padx=8, pady=(4, 8))
 
     def _init_restore_tab(self):
-        frame_top = ttk.Frame(self.tab_restore)
+        inner = self._make_scrollable(self.tab_restore)
+
+        frame_top = ttk.Frame(inner)
         frame_top.pack(fill=tk.X, padx=10, pady=10)
-        
+
         ttk.Label(frame_top, text="Select Job to Restore:").pack(side=tk.LEFT)
         self.combo_restore_jobs = ttk.Combobox(frame_top, state="readonly")
         self.combo_restore_jobs.pack(side=tk.LEFT, padx=5)
-        
+
         # We need to refresh this list too when jobs change
         # For now populate once
         self._refresh_restore_jobs()
-        
-        frame_dest = ttk.Frame(self.tab_restore)
+
+        frame_dest = ttk.Frame(inner)
         frame_dest.pack(fill=tk.X, padx=10, pady=5)
-        
+
         ttk.Label(frame_dest, text="Restore To:").pack(side=tk.LEFT)
         self.ent_restore_dest = ttk.Entry(frame_dest, width=40)
         self.ent_restore_dest.pack(side=tk.LEFT, padx=5)
-        
+
         def browse_restore_dest():
             d = filedialog.askdirectory()
             if d:
                 self.ent_restore_dest.delete(0, tk.END)
                 self.ent_restore_dest.insert(0, d)
-        
+
         ttk.Button(frame_dest, text="Browse...", command=browse_restore_dest).pack(side=tk.LEFT)
-        
-        frame_action = ttk.Frame(self.tab_restore)
+
+        frame_action = ttk.Frame(inner)
         frame_action.pack(pady=20)
-        
+
         ttk.Button(frame_action, text="Start Full Restore", command=self._start_restore).pack()
-        
-        self.lbl_restore_status = ttk.Label(self.tab_restore, text="")
+
+        self.lbl_restore_status = ttk.Label(inner, text="")
         self.lbl_restore_status.pack(pady=5)
 
     def _refresh_restore_jobs(self):

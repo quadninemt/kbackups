@@ -146,3 +146,15 @@ to both Add Job and Edit Job dialogs, factored into `_build_excludes_editor`. Ne
 start empty (per preference); Edit pre-loads existing patterns. Added a scanner test
 verifying `.git` folders (top-level and nested) and `*.url` files are excluded while
 other files are kept. 19 tests pass. (v1.3.8)
+
+### [DONE] Make all pages scrollable for small screens
+Settings was already scrollable and the Activity Log has its own scrollbar. Added a
+reusable `_make_scrollable` helper (Canvas + scrollbar + inner frame) with a smart
+mouse-wheel handler that lets a Text/Listbox under the pointer scroll itself instead
+of the page. Applied to the **Restore** tab. The **Dashboard** uses a split layout:
+the controls (job selector, buttons, 5 cards, status, settings-file) live in a
+scrollable region that shrinks/scrolls when the window is short, while the Activity
+Log stays below and **keeps expanding** to fill remaining space (per preference, log
+keeps ≥150px). Verified the GUI builds and survives small-window resizes; 19 tests
+pass. (v1.3.9)
+
