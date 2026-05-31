@@ -120,6 +120,17 @@ signature unchanged).
 ### [DONE] Change the Failed card text to yellow
 Failed card value + accent are now yellow (`#f1c40f`) instead of red. (v1.3.6)
 
+### [DONE] Failed card showed 4k+ but dialog said "no files failed"
+The card read the live `stats['failed']` during the run, but the dialog read
+`self.last_failures`, which was only set in `cleanup()` *after* `run_job` returned —
+so clicking mid-run (or after an early Stop) showed an empty list, and a large count
+(e.g. 4k, typically a systemic failure like an unreachable destination) had no detail.
+Fix (v1.3.7): the engine now maintains failures **live** in a thread-safe map
+(`_failures`), exposed via the `last_run_failures` property; the dialog reads the live
+engine when a run is in progress and falls back to the captured list afterward. Card
+count and dialog list are now always consistent. Verified: a 6-file all-fail run gives
+`stats.failed == 6` and 6 `{path,error}` entries.
+
 ### [DONE] Click the Failed card → dialog of failed files + error messages
 The Failed card is now clickable (hand cursor) and opens a scrollable dialog listing
 each failed file path with its error message. `BackupEngine.last_run_failures` now

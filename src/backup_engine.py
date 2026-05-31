@@ -2,6 +2,7 @@ import os
 import logging
 import time
 import re
+import threading
 import zipfile
 import tempfile
 from datetime import datetime
@@ -23,10 +24,29 @@ class BackupEngine:
         self.manifest_manager = ManifestManager()
         self._stop_requested = False
         self._pause_requested = False
-        # Paths of files that still failed after all retries in the last run.
-        self.last_run_failures = []
+        # Live map of currently-failed files: path -> {'path', 'error'}.
+        # Maintained during the run (thread-safe) so the GUI can show details
+        # even mid-run or after an early stop.
+        self._failures = {}
+        self._failures_lock = threading.Lock()
         # Live counters for the dashboard indicators.
         self.stats = {'backed_up': 0, 'skipped': 0, 'deleted': 0, 'failed': 0}
+
+    @property
+    def last_run_failures(self):
+        """Snapshot list of {'path','error'} for files currently failed."""
+        with self._failures_lock:
+            return [dict(v) for v in self._failures.values()]
+
+    def _record_failure(self, path, error):
+        with self._failures_lock:
+            self._failures[path] = {'path': path, 'error': error}
+            self.stats['failed'] = len(self._failures)
+
+    def _clear_failure(self, path):
+        with self._failures_lock:
+            self._failures.pop(path, None)
+            self.stats['failed'] = len(self._failures)
 
     def request_stop(self):
         self._stop_requested = True
@@ -165,7 +185,8 @@ class BackupEngine:
         """Run a backup job by name. progress_callback(current, total, message)."""
         self._stop_requested = False
         self._pause_requested = False
-        self.last_run_failures = []
+        with self._failures_lock:
+            self._failures = {}
         self.stats = {'backed_up': 0, 'skipped': 0, 'deleted': 0, 'failed': 0}
         self.logger.info("Starting backup job '%s'.", job_name)
 
@@ -320,9 +341,8 @@ class BackupEngine:
                         manifest_updates.append(payload)
                     self.stats['backed_up'] += 1
                 else:
-                    meta['_error'] = payload
                     failed.append(meta)
-                    self.stats['failed'] = len(failed)
+                    self._record_failure(meta['path'], payload)
                     self.logger.warning("Upload failed (%s): %s", payload, meta['path'])
                     if progress_callback:
                         progress_callback(processed, total_ops, f"Failed ({payload}): {rel_path} — will retry")
@@ -353,20 +373,16 @@ class BackupEngine:
                         if payload:
                             manifest_updates.append(payload)
                         self.stats['backed_up'] += 1
+                        self._clear_failure(meta['path'])
                         self.logger.info("Retry succeeded: %s", meta['path'])
                     else:
-                        meta['_error'] = payload
                         still_failed.append(meta)
+                        self._record_failure(meta['path'], payload)
                 failed = still_failed
-                self.stats['failed'] = len(failed)
 
-            # Record persistent failures with their last error (not added to the
-            # manifest, so the next run retries them).
-            self.last_run_failures = [
-                {'path': m['path'], 'error': m.get('_error', 'unknown error')}
-                for m in failed
-            ]
-            self.stats['failed'] = len(failed)
+            # Persistent failures remain in self._failures (exposed via the
+            # last_run_failures property); they are NOT written to the manifest,
+            # so the next run retries them.
             if failed:
                 self.logger.warning(
                     "=== Job '%s': %d file(s) FAILED after %d retries ===",
@@ -386,7 +402,7 @@ class BackupEngine:
                     progress_callback(processed, total_ops, "Backup failed: could not upload job snapshot.")
                 return False
 
-            failure_count = len(self.last_run_failures)
+            failure_count = len(failed)
             if failure_count:
                 final_msg = f"Backup completed with {failure_count} failed file(s) — see log."
             else:

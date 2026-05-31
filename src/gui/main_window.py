@@ -879,7 +879,13 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
 
     def _show_failures(self):
         """Open a dialog listing the failed files and their error messages."""
-        failures = getattr(self, 'last_failures', []) or []
+        # Prefer the live engine (a run may be in progress); fall back to the
+        # last finished run's captured failures.
+        engine = getattr(self, 'current_engine', None)
+        if engine is not None:
+            failures = list(getattr(engine, 'last_run_failures', []))
+        else:
+            failures = getattr(self, 'last_failures', []) or []
         if not failures:
             messagebox.showinfo("Failed files", "No files failed in the last backup. 🎉")
             return
