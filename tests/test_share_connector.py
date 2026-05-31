@@ -198,7 +198,9 @@ class TestBackupEngineRetry(unittest.TestCase):
             result = engine.run_job('job1')
 
         self.assertTrue(result)  # job ran to completion
-        self.assertEqual(engine.last_run_failures, [r'C:\src\bad.txt'])
+        self.assertEqual(len(engine.last_run_failures), 1)
+        self.assertEqual(engine.last_run_failures[0]['path'], r'C:\src\bad.txt')
+        self.assertIn('error', engine.last_run_failures[0])
         # bad.txt attempted 1 + MAX_UPLOAD_RETRIES times
         bad_attempts = sum(1 for c in fake_conn.upload_file.call_args_list if c.args[0].endswith('bad.txt'))
         self.assertEqual(bad_attempts, 1 + engine.MAX_UPLOAD_RETRIES)

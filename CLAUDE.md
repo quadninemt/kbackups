@@ -124,6 +124,7 @@ build.bat
 
 ## Recently Completed
 
+- Failed card is yellow (`#f1c40f`) and clickable → dialog listing failed files + error messages; `last_run_failures` now stores `{path, error}` dicts, GUI keeps `self.last_failures`
 - Dashboard now 5 cards: % Complete / Backed Up / Up to Date / Deleted / Failed (`BackupEngine.stats` tracks deleted too). "Up to Date" is 0 only on first backup (empty manifest); meaningful on re-runs
 - Scan-phase visibility: `FileScanner.scan` reports progress every ~1000 files; engine logs per-folder scan progress + a "X to back up / Y up to date / Z to delete" summary to the activity log
 - Auto-update helper now survives app exit: launched with `CREATE_BREAKAWAY_FROM_JOB` (+ new group, no window) to escape kill-on-close Job Object; `ping` instead of `timeout` (no stdin when detached). v1.3.1/1.3.2 helper died on exit → needs one-time manual install of v1.3.3

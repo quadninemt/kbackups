@@ -320,6 +320,7 @@ class BackupEngine:
                         manifest_updates.append(payload)
                     self.stats['backed_up'] += 1
                 else:
+                    meta['_error'] = payload
                     failed.append(meta)
                     self.stats['failed'] = len(failed)
                     self.logger.warning("Upload failed (%s): %s", payload, meta['path'])
@@ -354,12 +355,17 @@ class BackupEngine:
                         self.stats['backed_up'] += 1
                         self.logger.info("Retry succeeded: %s", meta['path'])
                     else:
+                        meta['_error'] = payload
                         still_failed.append(meta)
                 failed = still_failed
                 self.stats['failed'] = len(failed)
 
-            # Record persistent failures (not added to manifest, so next run retries them)
-            self.last_run_failures = [m['path'] for m in failed]
+            # Record persistent failures with their last error (not added to the
+            # manifest, so the next run retries them).
+            self.last_run_failures = [
+                {'path': m['path'], 'error': m.get('_error', 'unknown error')}
+                for m in failed
+            ]
             self.stats['failed'] = len(failed)
             if failed:
                 self.logger.warning(

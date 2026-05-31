@@ -116,3 +116,14 @@ a ⚠ glyph when > 0). Engine now tracks live counts via `BackupEngine.stats`
 updates the cards live. Cards reset to 0 at the start of a run and retain final
 totals afterward (per user preference). `run_cli.py` is unaffected (callback
 signature unchanged).
+
+### [DONE] Change the Failed card text to yellow
+Failed card value + accent are now yellow (`#f1c40f`) instead of red. (v1.3.6)
+
+### [DONE] Click the Failed card → dialog of failed files + error messages
+The Failed card is now clickable (hand cursor) and opens a scrollable dialog listing
+each failed file path with its error message. `BackupEngine.last_run_failures` now
+stores `{path, error}` dicts (last failure reason tracked through the retry loop); the
+GUI remembers the run's failures in `self.last_failures` so the dialog works after the
+run ends. Clicking with no failures shows a friendly "no files failed" message. (v1.3.6)
+

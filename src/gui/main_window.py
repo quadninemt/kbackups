@@ -59,6 +59,9 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self.notebook.add(self.tab_settings, text="Settings")
         self.notebook.add(self.tab_restore, text="Restore")
         
+        # Failures from the most recent backup run (shown when the Failed card is clicked)
+        self.last_failures = []
+
         # Initialize tabs
         self._init_dashboard_tab()
         self._init_jobs_tab()
@@ -149,20 +152,27 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         for i in range(5):
             cards.columnconfigure(i, weight=1, uniform="cards")
 
-        def _make_card(col, caption, color):
+        def _make_card(col, caption, color, on_click=None):
             card = tk.Frame(cards, bg="#33373b", highlightbackground="#444a50", highlightthickness=1)
             card.grid(row=0, column=col, padx=5, sticky="nsew")
-            tk.Frame(card, bg=color, height=4).pack(fill=tk.X)
+            accent = tk.Frame(card, bg=color, height=4)
+            accent.pack(fill=tk.X)
             value = tk.Label(card, text="0", bg="#33373b", fg=color, font=("Segoe UI", 20, "bold"))
             value.pack(pady=(12, 2))
-            tk.Label(card, text=caption, bg="#33373b", fg="#c9d1d9", font=("Segoe UI", 9)).pack(pady=(0, 12))
+            cap = tk.Label(card, text=caption, bg="#33373b", fg="#c9d1d9", font=("Segoe UI", 9))
+            cap.pack(pady=(0, 12))
+            if on_click:
+                for w in (card, accent, value, cap):
+                    w.bind("<Button-1>", lambda e: on_click())
+                    w.config(cursor="hand2")
             return value
 
+        FAIL_COLOR = "#f1c40f"  # yellow
         self.card_pct = _make_card(0, "Complete", "#007acc")
         self.card_done = _make_card(1, "Backed Up", "#2ea043")
         self.card_skip = _make_card(2, "Up to Date", "#6e7681")
         self.card_del = _make_card(3, "Deleted", "#d29922")
-        self.card_fail = _make_card(4, "Failed", "#d13438")
+        self.card_fail = _make_card(4, "Failed", FAIL_COLOR, on_click=self._show_failures)
         self.card_pct.config(text="0%")
 
         self.lbl_status = ttk.Label(self.tab_dashboard, text="Ready")
@@ -853,7 +863,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self.card_done.config(text="0")
         self.card_skip.config(text="0")
         self.card_del.config(text="0")
-        self.card_fail.config(text="0", fg="#d13438")
+        self.card_fail.config(text="0", fg="#f1c40f")
 
     def _update_cards(self, pct):
         self.card_pct.config(text=f"{pct}%")
@@ -866,6 +876,44 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         self.card_del.config(text=str(stats.get('deleted', 0)))
         failed = stats.get('failed', 0)
         self.card_fail.config(text=(f"⚠ {failed}" if failed > 0 else "0"))
+
+    def _show_failures(self):
+        """Open a dialog listing the failed files and their error messages."""
+        failures = getattr(self, 'last_failures', []) or []
+        if not failures:
+            messagebox.showinfo("Failed files", "No files failed in the last backup. 🎉")
+            return
+
+        top = tk.Toplevel(self)
+        top.title(f"Failed files ({len(failures)})")
+        top.geometry("720x420")
+        top.transient(self)
+
+        ttk.Label(
+            top,
+            text=f"{len(failures)} file(s) failed after retries. They will be retried on the next backup.",
+            wraplength=690,
+        ).pack(anchor=tk.W, padx=10, pady=(10, 4))
+
+        frame = ttk.Frame(top)
+        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        scrollbar = ttk.Scrollbar(frame, orient="vertical")
+        text = tk.Text(frame, wrap="word", bg="#1e1e1e", fg="#e6e6e6",
+                       insertbackground="#e6e6e6", yscrollcommand=scrollbar.set)
+        scrollbar.config(command=text.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        for i, item in enumerate(failures, 1):
+            if isinstance(item, dict):
+                path = item.get('path', '?')
+                err = item.get('error', 'unknown error')
+            else:  # tolerate a plain path string
+                path, err = str(item), 'unknown error'
+            text.insert(tk.END, f"{i}. {path}\n    → {err}\n\n")
+        text.config(state="disabled")
+
+        ttk.Button(top, text="Close", command=top.destroy).pack(pady=(0, 10))
 
     def _start_backup(self):
         job_name = self.combo_jobs.get()
@@ -913,6 +961,9 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
             success = False
             self.after(0, lambda: self._log(f"Critical Error: {e}"))
 
+        # Remember this run's failures so the Failed card can show details on click
+        self.last_failures = failures
+
         # Cleanup UI
         def cleanup():
             self.btn_backup.state(['!disabled'])
@@ -922,12 +973,15 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
             if success and not failures:
                 messagebox.showinfo("Backup", "Backup completed successfully!")
             elif success and failures:
-                preview = "\n".join(f"  • {p}" for p in failures[:10])
+                def _p(item):
+                    return item.get('path', '?') if isinstance(item, dict) else str(item)
+                preview = "\n".join(f"  • {_p(f)}" for f in failures[:10])
                 more = f"\n  …and {len(failures) - 10} more" if len(failures) > 10 else ""
                 messagebox.showwarning(
                     "Backup completed with errors",
                     f"Backup finished, but {len(failures)} file(s) failed after retries.\n"
-                    f"They will be retried on the next backup. See the log for details.\n\n"
+                    f"They will be retried on the next backup.\n"
+                    f"Click the Failed card to see full details.\n\n"
                     f"{preview}{more}"
                 )
             else:
