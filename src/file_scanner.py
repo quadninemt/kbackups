@@ -10,6 +10,21 @@ class FileScanner:
     # Emit a scan-progress update roughly every this many files found.
     SCAN_PROGRESS_INTERVAL = 1000
 
+    # Windows reserved device names. A file with one of these base names (any
+    # extension) resolves to a device path like \\.\nul, which breaks
+    # os.path.relpath and can't be backed up. Skip them defensively.
+    _WINDOWS_RESERVED = {
+        'con', 'prn', 'aux', 'nul',
+        *(f'com{i}' for i in range(1, 10)),
+        *(f'lpt{i}' for i in range(1, 10)),
+    }
+
+    @classmethod
+    def _is_reserved_name(cls, name):
+        # Strip extension: 'nul.txt' is still the reserved device 'nul' on Windows.
+        stem = name.split('.', 1)[0].strip().lower()
+        return stem in cls._WINDOWS_RESERVED
+
     def scan(self, source_paths, excludes=None, progress_callback=None):
         """
         Scan directories for files, respecting exclude patterns.
@@ -36,6 +51,9 @@ class FileScanner:
 
                 for file in files:
                     full_path = os.path.join(root, file)
+                    if self._is_reserved_name(file):
+                        self.logger.warning(f"Skipping Windows reserved name: {full_path}")
+                        continue
                     if self._is_excluded(full_path, source_path, excludes):
                         continue
 
@@ -55,7 +73,7 @@ class FileScanner:
 
                         if progress_callback and len(file_list) % self.SCAN_PROGRESS_INTERVAL == 0:
                             progress_callback(len(file_list))
-                    except OSError as e:
+                    except (OSError, ValueError) as e:
                         self.logger.error(f"Error accessing file {full_path}: {e}", exc_info=True)
 
         self.logger.info(f"Scanned {len(file_list)} files.")
@@ -86,11 +104,17 @@ class FileScanner:
         if any(fnmatch.fnmatch(os.path.basename(path), pattern) for pattern in excludes):
             return True
         
-        # Check against relative path
-        rel_path = os.path.relpath(path, base_path)
+        # Check against relative path. relpath can raise ValueError when the
+        # path resolves to a different mount/device (e.g. a Windows reserved
+        # name); fall back to the basename check only and let the caller's
+        # guarded relpath surface the problem.
+        try:
+            rel_path = os.path.relpath(path, base_path)
+        except ValueError:
+            return False
         if any(fnmatch.fnmatch(rel_path, pattern) for pattern in excludes):
             return True
-            
+
         return False
 
     def _is_onedrive_placeholder(self, file_path):
