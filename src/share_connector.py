@@ -1,6 +1,7 @@
 import smbclient
 import os
 import shutil
+import stat
 import logging
 
 
@@ -19,25 +20,51 @@ class LocalConnector:
     def disconnect(self):
         self._connected = False
 
-    def upload_file(self, local_path, remote_path):
+    @staticmethod
+    def _clear_readonly(path):
+        """
+        Drop the read-only attribute from an existing destination file so it can
+        be overwritten. Git object files are created mode 444, which otherwise
+        makes the copy fail with PermissionError on every run.
+        """
         try:
-            os.makedirs(os.path.dirname(remote_path), exist_ok=True)
-            shutil.copy2(local_path, remote_path)
-            self.logger.info("Copied %s → %s", local_path, remote_path)
-            return True
+            if os.path.exists(path) and not os.access(path, os.W_OK):
+                os.chmod(path, stat.S_IWRITE)
+        except OSError:
+            # Best effort — if this fails the copy below reports the real error.
+            pass
+
+    def _copy(self, src, dst):
+        """
+        Copy src to dst, creating parent directories. File data is required;
+        metadata (timestamps, mode) is best effort.
+        """
+        try:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            self._clear_readonly(dst)
+            shutil.copyfile(src, dst)
         except Exception as e:
-            self.logger.error("Failed to copy %s to %s: %s", local_path, remote_path, e, exc_info=True)
+            self.logger.error("Failed to copy %s to %s: %s", src, dst, e, exc_info=True)
             return False
 
-    def download_file(self, remote_path, local_path):
+        # The file data is safely written by this point, so a metadata failure
+        # must not fail the backup. copystat raises on filesystems that cannot
+        # represent the source's timestamps — notably exFAT, which stores no
+        # date before 1980, while npm-installed files carry a 1970-01-01 mtime.
+        # That combination raises [WinError 87] The parameter is incorrect.
         try:
-            os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            shutil.copy2(remote_path, local_path)
-            self.logger.info("Copied %s → %s", remote_path, local_path)
-            return True
-        except Exception as e:
-            self.logger.error("Failed to copy %s to %s: %s", remote_path, local_path, e, exc_info=True)
-            return False
+            shutil.copystat(src, dst)
+        except OSError as e:
+            self.logger.debug("Metadata not copied for %s: %s", dst, e)
+
+        self.logger.info("Copied %s → %s", src, dst)
+        return True
+
+    def upload_file(self, local_path, remote_path):
+        return self._copy(local_path, remote_path)
+
+    def download_file(self, remote_path, local_path):
+        return self._copy(remote_path, local_path)
 
     def delete_file(self, remote_path):
         try:

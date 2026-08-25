@@ -75,6 +75,11 @@ class BackupEngine:
         used_names = {}
         for source_path in source_paths:
             normalized = os.path.normpath(source_path)
+            if os.path.isfile(normalized):
+                # A single-file source mirrors to the destination root; the
+                # scanner already sets its rel_path to the bare file name.
+                source_folder_map[source_path] = ""
+                continue
             folder_name = os.path.basename(normalized)
             if not folder_name:
                 drive, _ = os.path.splitdrive(normalized)

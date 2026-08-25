@@ -2,6 +2,7 @@ import os
 import unittest
 import tempfile
 import shutil
+import stat
 from unittest.mock import patch, MagicMock
 from src.share_connector import ShareConnector, LocalConnector
 
@@ -68,6 +69,70 @@ class TestLocalConnector(unittest.TestCase):
         connector = LocalConnector()
         self.assertTrue(connector.download_file(src, dst))
         self.assertTrue(os.path.exists(dst))
+
+    def test_upload_succeeds_when_metadata_copy_fails(self):
+        # exFAT destinations raise [WinError 87] from copystat for source files
+        # dated before 1980 (npm ships 1970-01-01 mtimes). The data is already
+        # written, so the upload must still count as a success.
+        src = os.path.join(self.tmpdir, "epoch.js")
+        dst = os.path.join(self.tmpdir, "out", "epoch.js")
+        with open(src, 'w') as f:
+            f.write("payload")
+
+        connector = LocalConnector()
+        with patch("shutil.copystat", side_effect=OSError(22, "The parameter is incorrect")):
+            self.assertTrue(connector.upload_file(src, dst))
+        with open(dst) as f:
+            self.assertEqual(f.read(), "payload")
+
+    def test_upload_fails_when_data_copy_fails(self):
+        # A genuine data-copy failure must still be reported as a failure.
+        src = os.path.join(self.tmpdir, "source.txt")
+        dst = os.path.join(self.tmpdir, "out", "source.txt")
+        with open(src, 'w') as f:
+            f.write("payload")
+
+        connector = LocalConnector()
+        with patch("shutil.copyfile", side_effect=PermissionError(13, "Permission denied")):
+            self.assertFalse(connector.upload_file(src, dst))
+
+    def test_upload_overwrites_readonly_destination(self):
+        # Git object files are mode 444; overwriting one must not fail.
+        src = os.path.join(self.tmpdir, "obj_src")
+        dst = os.path.join(self.tmpdir, "out", "obj_dst")
+        with open(src, 'w') as f:
+            f.write("new")
+        os.makedirs(os.path.dirname(dst))
+        with open(dst, 'w') as f:
+            f.write("old")
+        os.chmod(dst, stat.S_IREAD)
+
+        try:
+            connector = LocalConnector()
+            self.assertTrue(connector.upload_file(src, dst))
+            with open(dst) as f:
+                self.assertEqual(f.read(), "new")
+        finally:
+            os.chmod(dst, stat.S_IWRITE)
+
+    def test_download_overwrites_readonly_destination(self):
+        # Restore must be able to overwrite read-only files too.
+        src = os.path.join(self.tmpdir, "remote_obj")
+        dst = os.path.join(self.tmpdir, "restored", "obj")
+        with open(src, 'w') as f:
+            f.write("restored")
+        os.makedirs(os.path.dirname(dst))
+        with open(dst, 'w') as f:
+            f.write("stale")
+        os.chmod(dst, stat.S_IREAD)
+
+        try:
+            connector = LocalConnector()
+            self.assertTrue(connector.download_file(src, dst))
+            with open(dst) as f:
+                self.assertEqual(f.read(), "restored")
+        finally:
+            os.chmod(dst, stat.S_IWRITE)
 
     def test_delete_file(self):
         path = os.path.join(self.tmpdir, "todelete.txt")
@@ -192,6 +257,7 @@ class TestBackupEngineRetry(unittest.TestCase):
         with patch.object(engine, '_create_connector', return_value=fake_conn), \
              patch.object(engine, '_upload_job_snapshot', return_value=True), \
              patch('os.path.exists', return_value=True), \
+             patch('os.path.isfile', return_value=False), \
              patch('os.stat') as mock_stat:
             mock_stat.return_value.st_size = 1
             mock_stat.return_value.st_mtime = 1.0
@@ -204,6 +270,38 @@ class TestBackupEngineRetry(unittest.TestCase):
         # bad.txt attempted 1 + MAX_UPLOAD_RETRIES times
         bad_attempts = sum(1 for c in fake_conn.upload_file.call_args_list if c.args[0].endswith('bad.txt'))
         self.assertEqual(bad_attempts, 1 + engine.MAX_UPLOAD_RETRIES)
+
+
+class TestSourceFolderMap(unittest.TestCase):
+    def setUp(self):
+        from src.backup_engine import BackupEngine
+        self.engine = BackupEngine.__new__(BackupEngine)
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_directory_source_maps_to_its_basename(self):
+        src = os.path.join(self.tmpdir, "projects")
+        os.makedirs(src)
+        self.assertEqual(self.engine._get_source_folder_map([src]), {src: "projects"})
+
+    def test_file_source_maps_to_destination_root(self):
+        # A file source must not land inside a folder named after itself.
+        src = os.path.join(self.tmpdir, ".claude.json")
+        with open(src, 'w') as f:
+            f.write("{}")
+        self.assertEqual(self.engine._get_source_folder_map([src]), {src: ""})
+        # os.path.join with "" leaves the rel_path untouched.
+        self.assertEqual(os.path.join("", ".claude.json"), ".claude.json")
+
+    def test_duplicate_directory_names_are_disambiguated(self):
+        a = os.path.join(self.tmpdir, "one", "Claude")
+        b = os.path.join(self.tmpdir, "two", "Claude")
+        os.makedirs(a)
+        os.makedirs(b)
+        self.assertEqual(self.engine._get_source_folder_map([a, b]),
+                         {a: "Claude", b: "Claude_2"})
 
 
 class TestFileScannerProgress(unittest.TestCase):

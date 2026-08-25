@@ -123,6 +123,12 @@ build.bat
 
 ## Recently Completed
 
+- Dark title bar via DWM `DWMWA_USE_IMMERSIVE_DARK_MODE` (attribute 20, falling back to 19) on the main window and all three dialogs; `Treeview` `rowheight` raised to 30 so job/restore rows aren't squashed. Note `assets/azure.tcl` has never shipped — the clam fallback in `_apply_theme` is the live path
+- File sources: `FileScanner.scan` accepts a single file as a source path (was silently backing up nothing — `os.walk` yields nothing for a file); `rel_path` is the bare name and `_get_source_folder_map` maps it to the destination root. Any source contributing 0 files now logs a WARNING instead of passing silently
+- Fixed 5528 spurious failures backing up to exFAT: `LocalConnector` now copies data with `copyfile` and treats `copystat` as best-effort (exFAT can't store the pre-1980 mtimes npm ships, raising `[WinError 87]`), and clears the read-only attribute before overwriting (git objects are mode 444). Both applied to restore too
+- `FileScanner.DEFAULT_EXCLUDES` — Chromium/Electron cache dirs skipped for every job; deliberately excludes only unambiguous artefact names, not generic ones like `Cache` or `Network`
+- **Gotcha:** changing a job's `destination_path` does NOT re-copy anything — the manifest tracks source `rel_path`, so every file still looks up to date. Clear the job's manifest rows to force a full re-copy before retiring the old destination
+
 - Add/Edit Job dialogs scrollable too: fixed Save/Cancel bar + `_make_scrollable` body + height capped to screen (`min(600, screen-80)`)
 - Scrollable tabs for small screens: `_make_scrollable` helper (Canvas + smart wheel that yields to inner Text/Listbox) on Restore; Dashboard split = controls scroll, Activity Log stays expanding (≥150px). Settings already scrollable
 - Exclude patterns editable in Add/Edit Job dialogs (`_build_excludes_editor`): listbox + Add/Remove; engine already matched via fnmatch on basename, so `.git` excludes that folder anywhere and `*.url` excludes those files

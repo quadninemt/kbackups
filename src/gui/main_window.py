@@ -20,7 +20,49 @@ from src.scheduler_manager import SchedulerManager
 from src.backup_engine import BackupEngine
 from src.updater import Updater
 
+def apply_dark_titlebar(window):
+    """
+    Render a window's title bar dark.
+
+    Windows draws the caption itself, so ttk theming never reaches it and a
+    dark app ends up with a white title bar. DWM exposes this as
+    DWMWA_USE_IMMERSIVE_DARK_MODE: attribute 20 on Windows 10 2004+ and
+    Windows 11, attribute 19 on builds 18985 and earlier. Try 20, fall back
+    to 19. No-op on other platforms.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        window.update_idletasks()  # the native window must exist first
+        hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
+        if not hwnd:
+            return
+
+        enabled = ctypes.c_int(1)
+        for attribute in (20, 19):
+            applied = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, attribute, ctypes.byref(enabled), ctypes.sizeof(enabled))
+            if applied == 0:
+                break
+        else:
+            return
+
+        # DWM only repaints the caption on the next frame change, so an
+        # already-mapped window keeps its light bar until it is nudged.
+        if window.state() != "withdrawn":
+            window.withdraw()
+            window.deiconify()
+    except Exception as e:
+        print(f"Dark title bar not applied: {e}")
+
+
 class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
+    # Vertical size of a row in list views (job list, restore list). Tk's
+    # default of roughly 20px leaves the rows looking squashed together.
+    TREEVIEW_ROW_HEIGHT = 30
+
     def __init__(self, config_manager):
         super().__init__()
         self.config_manager = config_manager
@@ -43,6 +85,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         
         # Apply theme
         self._apply_theme()
+        apply_dark_titlebar(self)
         
         # Create Notebook (Tabs)
         self.notebook = ttk.Notebook(self)
@@ -120,8 +163,15 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
             self.option_add("*TCombobox*Listbox.foreground", fg_color)
             self.option_add("*TCombobox*Listbox.selectBackground", accent_color)
             self.option_add("*TCombobox*Listbox.selectForeground", "white")
-            
+
             self.configure(bg=bg_color)
+
+        # Applies to whichever theme loaded above: Azure brings its own Treeview
+        # style and the fallback sets colours only, so neither gives list rows
+        # enough vertical separation. Tk's default (~20px) reads as squashed.
+        style = ttk.Style()
+        style.configure("Treeview", rowheight=self.TREEVIEW_ROW_HEIGHT)
+        style.configure("Treeview.Heading", padding=(4, 6))
 
     def _bind_mousewheel(self, canvas):
         """Scroll `canvas` with the wheel while hovering, but let a Text/Listbox
@@ -439,6 +489,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
 
     def _add_job(self):
         top = tk.Toplevel(self)
+        apply_dark_titlebar(top)
         top.title("Add New Job")
         height = min(600, top.winfo_screenheight() - 80)
         top.geometry(f"600x{height}")
@@ -605,6 +656,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
         existing_job = jobs[job_index]
 
         top = tk.Toplevel(self)
+        apply_dark_titlebar(top)
         top.title("Edit Job")
         height = min(600, top.winfo_screenheight() - 80)
         top.geometry(f"600x{height}")
@@ -1007,6 +1059,7 @@ class MainWindow(TkinterDnD.Tk if TkinterDnD is not None else tk.Tk):
             return
 
         top = tk.Toplevel(self)
+        apply_dark_titlebar(top)
         top.title(f"Failed files ({len(failures)})")
         top.geometry("720x420")
         top.transient(self)
