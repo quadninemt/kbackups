@@ -68,6 +68,10 @@ class LocalConnector:
 
     def delete_file(self, remote_path):
         try:
+            # Read-only files (git objects are mode 444) raise [WinError 5] on
+            # remove, which would strand them on the destination forever — the
+            # engine drops the manifest row only when the delete succeeds.
+            self._clear_readonly(remote_path)
             os.remove(remote_path)
             self.logger.info("Deleted %s", remote_path)
             return True

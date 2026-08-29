@@ -142,6 +142,18 @@ class TestLocalConnector(unittest.TestCase):
         self.assertTrue(connector.delete_file(path))
         self.assertFalse(os.path.exists(path))
 
+    def test_delete_readonly_file(self):
+        # Git objects are mode 444; os.remove raises [WinError 5] on them, which
+        # stranded 4754 stale files on the destination in a real run.
+        path = os.path.join(self.tmpdir, "readonly_obj")
+        with open(path, 'w') as f:
+            f.write("x")
+        os.chmod(path, stat.S_IREAD)
+
+        connector = LocalConnector()
+        self.assertTrue(connector.delete_file(path))
+        self.assertFalse(os.path.exists(path))
+
     def test_delete_missing_file_returns_true(self):
         connector = LocalConnector()
         self.assertTrue(connector.delete_file(os.path.join(self.tmpdir, "nonexistent.txt")))

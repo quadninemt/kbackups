@@ -123,6 +123,9 @@ build.bat
 
 ## Recently Completed
 
+- `LocalConnector.delete_file` clears the read-only attribute before `os.remove`. Read-only git objects raised `[WinError 5]`, and since the engine drops a manifest row only when the delete succeeds, those files were stranded on the destination and retried forever — a real run attempted 25372 deletes and only 20618 landed
+- **Gotcha:** files that fail to upload never enter the manifest, so if the source later stops covering them they become untracked orphans on the destination that no run will ever clean up (this left 5873 files / 280 MB under `E:\Claude\Code`)
+
 - Dark title bar via DWM `DWMWA_USE_IMMERSIVE_DARK_MODE` (attribute 20, falling back to 19) on the main window and all three dialogs; `Treeview` `rowheight` raised to 30 so job/restore rows aren't squashed. Note `assets/azure.tcl` has never shipped — the clam fallback in `_apply_theme` is the live path
 - File sources: `FileScanner.scan` accepts a single file as a source path (was silently backing up nothing — `os.walk` yields nothing for a file); `rel_path` is the bare name and `_get_source_folder_map` maps it to the destination root. Any source contributing 0 files now logs a WARNING instead of passing silently
 - Fixed 5528 spurious failures backing up to exFAT: `LocalConnector` now copies data with `copyfile` and treats `copystat` as best-effort (exFAT can't store the pre-1980 mtimes npm ships, raising `[WinError 87]`), and clears the read-only attribute before overwriting (git objects are mode 444). Both applied to restore too
